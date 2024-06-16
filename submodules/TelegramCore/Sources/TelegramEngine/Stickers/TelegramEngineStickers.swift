@@ -33,6 +33,10 @@ public extension TelegramEngine {
         public func searchStickers(query: [String], scope: SearchStickersScope = [.installed, .remote]) -> Signal<(items: [FoundStickerItem], isFinalResult: Bool), NoError> {
             return _internal_searchStickers(account: self.account, query: query, scope: scope)
         }
+        
+        public func searchStickers(category: EmojiSearchCategories.Group, scope: SearchStickersScope = [.installed, .remote]) -> Signal<(items: [FoundStickerItem], isFinalResult: Bool), NoError> {
+            return _internal_searchStickers(account: self.account, category: category, scope: scope)
+        }
 
         public func searchStickerSetsRemotely(query: String) -> Signal<FoundStickerSets, NoError> {
             return _internal_searchStickerSetsRemotely(network: self.account.network, query: query)
@@ -139,6 +143,10 @@ public extension TelegramEngine {
         
         public func availableReactions() -> Signal<AvailableReactions?, NoError> {
             return _internal_cachedAvailableReactions(postbox: self.account.postbox)
+        }
+        
+        public func availableMessageEffects() -> Signal<AvailableMessageEffects?, NoError> {
+            return _internal_cachedAvailableMessageEffects(postbox: self.account.postbox)
         }
         
         public func savedMessageTagData() -> Signal<SavedMessageTags?, NoError> {
@@ -281,6 +289,13 @@ public extension TelegramEngine {
         
         public func searchEmoji(emojiString: [String]) -> Signal<(items: [TelegramMediaFile], isFinalResult: Bool), NoError> {
             return _internal_searchEmoji(account: self.account, query: emojiString)
+            |> map { items, isFinalResult -> (items: [TelegramMediaFile], isFinalResult: Bool) in
+                return (items.map(\.file), isFinalResult)
+            }
+        }
+        
+        public func searchEmoji(category: EmojiSearchCategories.Group) -> Signal<(items: [TelegramMediaFile], isFinalResult: Bool), NoError> {
+            return _internal_searchEmoji(account: self.account, query: category.identifiers)
             |> map { items, isFinalResult -> (items: [TelegramMediaFile], isFinalResult: Bool) in
                 return (items.map(\.file), isFinalResult)
             }

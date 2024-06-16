@@ -974,6 +974,13 @@ private final class StoryContainerScreenComponent: Component {
                     }
                 } else {
                     if let result = subview.hitTest(self.convert(self.convert(point, to: subview), to: subview), with: event) {
+                        if let environment = self.environment, case .regular = environment.metrics.widthClass {
+                            if result.isDescendant(of: self.backgroundEffectView) {
+                                if let stateValue = self.stateValue, let slice = stateValue.slice, let itemSetView = self.visibleItemSetViews[slice.peer.id] {
+                                    return itemSetView.view.view
+                                }
+                            }
+                        }
                         return result
                     }
                 }
@@ -1221,6 +1228,16 @@ private final class StoryContainerScreenComponent: Component {
                     }
                 }
             }
+        }
+        
+        func presentExternalTooltip(_ tooltipScreen: UndoOverlayController) {
+            guard let stateValue = self.stateValue, let slice = stateValue.slice, let itemSetView = self.visibleItemSetViews[slice.peer.id], let itemSetComponentView = itemSetView.view.view as? StoryItemSetContainerComponent.View else {
+                return
+            }
+            itemSetComponentView.sendMessageContext.tooltipScreen = tooltipScreen
+            itemSetComponentView.updateIsProgressPaused()
+            
+            self.environment?.controller()?.present(tooltipScreen, in: .current)
         }
         
         func update(component: StoryContainerScreenComponent, availableSize: CGSize, state: EmptyComponentState, environment: Environment<ViewControllerComponentContainer.Environment>, transition: Transition) -> CGSize {
@@ -2054,6 +2071,12 @@ public class StoryContainerScreen: ViewControllerComponentContainer {
             if let componentView = self.node.hostView.componentView as? StoryContainerScreenComponent.View {
                 componentView.animateIn()
             }
+        }
+    }
+    
+    public func presentExternalTooltip(_ tooltipScreen: UndoOverlayController) {
+        if let componentView = self.node.hostView.componentView as? StoryContainerScreenComponent.View {
+            componentView.presentExternalTooltip(tooltipScreen)
         }
     }
     

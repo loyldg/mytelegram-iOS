@@ -13,7 +13,6 @@ import SolidRoundedButtonComponent
 import MultilineTextComponent
 import MultilineTextWithEntitiesComponent
 import BundleIconComponent
-import SolidRoundedButtonComponent
 import BlurredBackgroundComponent
 import Markdown
 import InAppPurchaseManager
@@ -34,6 +33,7 @@ import EmojiStatusComponent
 import EntityKeyboard
 import EmojiActionIconComponent
 import ScrollComponent
+import PremiumStarComponent
 
 public enum PremiumSource: Equatable {
     public static func == (lhs: PremiumSource, rhs: PremiumSource) -> Bool {
@@ -1805,7 +1805,9 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                         }
                     },
                     tapAction: { _, _ in
-                        shareLink(link)
+                        if !link.isEmpty {
+                            shareLink(link)
+                        }
                     }
                 ),
                 environment: {},
@@ -2012,11 +2014,11 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                                 lineSpacing: 0.18
                             )))
                         ], alignment: .left, spacing: 2.0)),
-                        leftIcon: AnyComponentWithIdentity(id: 0, component: AnyComponent(PerkIconComponent(
+                        leftIcon: .custom(AnyComponentWithIdentity(id: 0, component: AnyComponent(PerkIconComponent(
                             backgroundColor: gradientColors[i],
                             foregroundColor: .white,
                             iconName: perk.iconName
-                        ))),
+                        ))), false),
                         action: { [weak state] _ in
                             var demoSubject: PremiumDemoScreen.Subject
                             switch perk {
@@ -2179,11 +2181,11 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                                 lineSpacing: 0.18
                             )))
                         ], alignment: .left, spacing: 2.0)),
-                        leftIcon: AnyComponentWithIdentity(id: 0, component: AnyComponent(PerkIconComponent(
+                        leftIcon: .custom(AnyComponentWithIdentity(id: 0, component: AnyComponent(PerkIconComponent(
                             backgroundColor: gradientColors[min(i, gradientColors.count - 1)],
                             foregroundColor: .white,
                             iconName: perk.iconName
-                        ))),
+                        ))), false),
                         action: { [weak state] _ in
                             let isPremium = state?.isPremium == true
                             if isPremium {
@@ -2363,11 +2365,11 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                             lineSpacing: 0.18
                         )))
                     ], alignment: .left, spacing: 2.0)),
-                    leftIcon: AnyComponentWithIdentity(id: 0, component: AnyComponent(PerkIconComponent(
+                    leftIcon: .custom(AnyComponentWithIdentity(id: 0, component: AnyComponent(PerkIconComponent(
                         backgroundColor: UIColor(rgb: 0x676bff),
                         foregroundColor: .white,
                         iconName: "Premium/BusinessPerk/Status"
-                    ))),
+                    ))), false),
                     icon: ListActionItemComponent.Icon(component: AnyComponentWithIdentity(id: 0, component: AnyComponent(EmojiActionIconComponent(
                         context: context.component.context,
                         color: accentColor,
@@ -2404,11 +2406,11 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                             lineSpacing: 0.18
                         )))
                     ], alignment: .left, spacing: 2.0)),
-                    leftIcon: AnyComponentWithIdentity(id: 0, component: AnyComponent(PerkIconComponent(
+                    leftIcon: .custom(AnyComponentWithIdentity(id: 0, component: AnyComponent(PerkIconComponent(
                         backgroundColor: UIColor(rgb: 0x4492ff),
                         foregroundColor: .white,
                         iconName: "Premium/BusinessPerk/Tag"
-                    ))),
+                    ))), false),
                     action: { _ in
                         push(accountContext.sharedContext.makeFilterSettingsController(context: accountContext, modal: false, scrollToTags: true, dismissed: nil))
                     }
@@ -2435,11 +2437,11 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                             lineSpacing: 0.18
                         )))
                     ], alignment: .left, spacing: 2.0)),
-                    leftIcon: AnyComponentWithIdentity(id: 0, component: AnyComponent(PerkIconComponent(
+                    leftIcon: .custom(AnyComponentWithIdentity(id: 0, component: AnyComponent(PerkIconComponent(
                         backgroundColor: UIColor(rgb: 0x41a6a5),
                         foregroundColor: .white,
                         iconName: "Premium/Perk/Stories"
-                    ))),
+                    ))), false),
                     action: {  _ in
                         push(accountContext.sharedContext.makeMyStoriesController(context: accountContext, isArchive: false))
                     }
@@ -2704,7 +2706,7 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                                     let _ = (signal
                                     |> deliverOnMainQueue).start(next: { resolvedUrl in
                                         context.sharedContext.openResolvedUrl(resolvedUrl, context: context, urlContext: .generic, navigationController: navigationController, forceExternal: false, openPeer: { peer, navigation in
-                                        }, sendFile: nil, sendSticker: nil, requestMessageActionUrlAuth: nil, joinVoiceChat: nil, present: { [weak controller] c, arguments in
+                                        }, sendFile: nil, sendSticker: nil, sendEmoji: nil, requestMessageActionUrlAuth: nil, joinVoiceChat: nil, present: { [weak controller] c, arguments in
                                             controller?.push(c)
                                         }, dismissInput: {}, contentContext: nil, progress: nil, completion: nil)
                                     })
@@ -3111,6 +3113,8 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
                                         errorText = presentationData.strings.Premium_Purchase_ErrorCantMakePayments
                                     case .assignFailed:
                                         errorText = presentationData.strings.Premium_Purchase_ErrorUnknown
+                                    case .tryLater:
+                                        errorText = presentationData.strings.Premium_Purchase_ErrorUnknown
                                     case .cancelled:
                                         break
                                 }
@@ -3161,6 +3165,8 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
         let bottomSeparator = Child(Rectangle.self)
         let button = Child(SolidRoundedButtonComponent.self)
         
+        var updatedInstalled: Bool?
+        
         return { context in
             let environment = context.environment[EnvironmentType.self].value
             let state = context.state
@@ -3206,9 +3212,15 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
             } else {
                 header = star.update(
                     component: PremiumStarComponent(
+                        theme: environment.theme,
                         isIntro: isIntro,
                         isVisible: starIsVisible,
-                        hasIdleAnimations: state.hasIdleAnimations
+                        hasIdleAnimations: state.hasIdleAnimations,
+                        colors: [
+                            UIColor(rgb: 0x6a94ff),
+                            UIColor(rgb: 0x9472fd),
+                            UIColor(rgb: 0xe26bd3)
+                        ]
                     ),
                     availableSize: CGSize(width: min(414.0, context.availableSize.width), height: 220.0),
                     transition: context.transition
@@ -3368,8 +3380,15 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
                         if let emojiFile = state?.emojiFile, let controller = environment?.controller() as? PremiumIntroScreen, let navigationController = controller.navigationController as? NavigationController {
                             for attribute in emojiFile.attributes {
                                 if case let .CustomEmoji(_, _, _, packReference) = attribute, let packReference = packReference {
-                                    let controller = accountContext.sharedContext.makeStickerPackScreen(context: accountContext, updatedPresentationData: nil, mainStickerPack: packReference, stickerPacks: [packReference], loadedStickerPacks: loadedEmojiPack.flatMap { [$0] } ?? [], isEditing: false, expandIfNeeded: false, parentNavigationController: navigationController, sendSticker: { _, _, _ in
+                                    var loadedPack: LoadedStickerPack?
+                                    if let loadedEmojiPack, case let .result(info, items, installed) = loadedEmojiPack {
+                                        loadedPack = .result(info: info, items: items, installed: updatedInstalled ?? installed)
+                                    }
+                                    
+                                    let controller = accountContext.sharedContext.makeStickerPackScreen(context: accountContext, updatedPresentationData: nil, mainStickerPack: packReference, stickerPacks: [packReference], loadedStickerPacks: loadedPack.flatMap { [$0] } ?? [], isEditing: false, expandIfNeeded: false, parentNavigationController: navigationController, sendSticker: { _, _, _ in
                                         return false
+                                    }, actionPerformed: { added in
+                                        updatedInstalled = added
                                     })
                                     presentController(controller)
                                     break

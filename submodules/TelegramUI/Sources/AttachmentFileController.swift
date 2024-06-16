@@ -172,6 +172,17 @@ private final class AttachmentFileContext: AttachmentMediaPickerContext {
         return .single(nil)
     }
     
+    var hasCaption: Bool {
+        return false
+    }
+    
+    var captionIsAboveMedia: Signal<Bool, NoError> {
+        return .single(false)
+    }
+    
+    func setCaptionIsAboveMedia(_ captionIsAboveMedia: Bool) -> Void {
+    }
+    
     public var loadingProgress: Signal<CGFloat?, NoError> {
         return .single(nil)
     }
@@ -183,10 +194,10 @@ private final class AttachmentFileContext: AttachmentMediaPickerContext {
     func setCaption(_ caption: NSAttributedString) {
     }
     
-    func send(mode: AttachmentMediaPickerSendMode, attachmentMode: AttachmentMediaPickerAttachmentMode) {
+    func send(mode: AttachmentMediaPickerSendMode, attachmentMode: AttachmentMediaPickerAttachmentMode, parameters: ChatSendMessageActionSheetController.SendParameters?) {
     }
     
-    func schedule() {
+    func schedule(parameters: ChatSendMessageActionSheetController.SendParameters?) {
     }
     
     func mainButtonAction() {
@@ -196,7 +207,11 @@ private final class AttachmentFileContext: AttachmentMediaPickerContext {
 class AttachmentFileControllerImpl: ItemListController, AttachmentFileController, AttachmentContainable {
     public var requestAttachmentMenuExpansion: () -> Void = {}
     public var updateNavigationStack: (@escaping ([AttachmentContainable]) -> ([AttachmentContainable], AttachmentMediaPickerContext?)) -> Void = { _ in }
+    public var parentController: () -> ViewController? = {
+        return nil
+    }
     public var updateTabBarAlpha: (CGFloat, ContainedViewLayoutTransition) -> Void = { _, _ in }
+    public var updateTabBarVisibility: (Bool, ContainedViewLayoutTransition) -> Void = { _, _ in }
     public var cancelPanGesture: () -> Void = { }
     public var isContainerPanning: () -> Bool = { return false }
     public var isContainerExpanded: () -> Bool = { return false }

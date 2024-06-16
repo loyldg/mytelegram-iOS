@@ -75,11 +75,16 @@ private func messagesShouldBeMerged(accountPeerId: PeerId, _ lhs: Message, _ rhs
         }
     }
     
+    var sameChat = true
+    if lhs.id.peerId != rhs.id.peerId {
+        sameChat = false
+    }
+    
     var sameThread = true
     if let lhsPeer = lhs.peers[lhs.id.peerId], let rhsPeer = rhs.peers[rhs.id.peerId], arePeersEqual(lhsPeer, rhsPeer), let channel = lhsPeer as? TelegramChannel, channel.flags.contains(.isForum), lhs.threadId != rhs.threadId {
         sameThread = false
     }
-    
+        
     var sameAuthor = false
     if lhsEffectiveAuthor?.id == rhsEffectiveAuthor?.id && lhs.effectivelyIncoming(accountPeerId) == rhs.effectivelyIncoming(accountPeerId) {
         sameAuthor = true
@@ -124,7 +129,7 @@ private func messagesShouldBeMerged(accountPeerId: PeerId, _ lhs: Message, _ rhs
         }
     }
     
-    if abs(lhsEffectiveTimestamp - rhsEffectiveTimestamp) < Int32(10 * 60) && sameAuthor && sameThread {
+    if abs(lhsEffectiveTimestamp - rhsEffectiveTimestamp) < Int32(10 * 60) && sameChat && sameAuthor && sameThread {
         if let channel = lhs.peers[lhs.id.peerId] as? TelegramChannel, case .group = channel.info, lhsEffectiveAuthor?.id == channel.id, !lhs.effectivelyIncoming(accountPeerId) {
             return .none
         }
@@ -477,7 +482,10 @@ public final class ChatMessageItemImpl: ChatMessageItem, CustomStringConvertible
             
             Queue.mainQueue().async {
                 completion(node, {
-                    return (nil, { _ in apply(.None, ListViewItemApply(isOnScreen: false), synchronousLoads) })
+                    return (nil, { info in
+                        info.setIsOffscreen()
+                        apply(.None, info, synchronousLoads)
+                    })
                 })
             }
         }

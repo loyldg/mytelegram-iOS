@@ -140,7 +140,7 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
         self.contentNode.activateAction = { [weak self] in
             if let strongSelf = self, let item = strongSelf.item {
                 if let _ = item.message.adAttribute {
-                    item.controllerInteraction.activateAdAction(item.message.id)
+                    item.controllerInteraction.activateAdAction(item.message.id, strongSelf.contentNode.makeProgress())
                 } else {
                     var webPageContent: TelegramMediaWebpageLoadedContent?
                     for media in item.message.media {
@@ -315,7 +315,7 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
                         var colors: [UInt32] = []
                         var rotation: Int32?
                         var intensity: Int32?
-                        if let wallpaper = parseWallpaperUrl(webpage.url), case let .slug(_, _, colorsValue, intensityValue, rotationValue) = wallpaper {
+                        if let wallpaper = parseWallpaperUrl(sharedContext: item.context.sharedContext, url: webpage.url), case let .slug(_, _, colorsValue, intensityValue, rotationValue) = wallpaper {
                             colors = colorsValue
                             rotation = rotationValue
                             intensity = intensityValue
@@ -353,7 +353,7 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
                     if type == "telegram_background" {
                         var colors: [UInt32] = []
                         var rotation: Int32?
-                        if let wallpaper = parseWallpaperUrl(webpage.url) {
+                        if let wallpaper = parseWallpaperUrl(sharedContext: item.context.sharedContext, url: webpage.url) {
                             if case let .color(color) = wallpaper {
                                 colors = [color.rgb]
                             } else if case let .gradient(colorsValue, rotationValue) = wallpaper {
@@ -748,5 +748,9 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
     
     override public func reactionTargetView(value: MessageReaction.Reaction) -> UIView? {
         return self.contentNode.reactionTargetView(value: value)
+    }
+    
+    override public func messageEffectTargetView() -> UIView? {
+        return self.contentNode.messageEffectTargetView()
     }
 }

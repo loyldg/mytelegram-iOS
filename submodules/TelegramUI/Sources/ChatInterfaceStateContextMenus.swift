@@ -178,6 +178,13 @@ private func canEditMessage(accountPeerId: PeerId, limitsConfiguration: EngineCo
     return false
 }
 
+private func canEditFactCheck(appConfig: AppConfiguration) -> Bool {
+    if let data = appConfig.data, let value = data["can_edit_factcheck"] as? Bool {
+        return value
+    }
+    return false
+}
+
 private func canViewReadStats(message: Message, participantCount: Int?, isMessageRead: Bool, isPremium: Bool, appConfig: AppConfiguration) -> Bool {
     guard let peer = message.peers[message.id.peerId] else {
         return false
@@ -274,10 +281,12 @@ private func canViewReadStats(message: Message, participantCount: Int?, isMessag
 }
 
 func canReplyInChat(_ chatPresentationInterfaceState: ChatPresentationInterfaceState, accountPeerId: PeerId) -> Bool {
+    if case let .customChatContents(contents) = chatPresentationInterfaceState.subject, case .hashTagSearch = contents.kind {
+        return false
+    }
     if case .customChatContents = chatPresentationInterfaceState.chatLocation {
         return true
     }
-    
     guard let peer = chatPresentationInterfaceState.renderedPeer?.peer else {
         return false
     }
@@ -473,6 +482,10 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
         isEmbeddedMode = true
     }
     
+    if case let .customChatContents(customChatContents) = chatPresentationInterfaceState.subject, case .hashTagSearch = customChatContents.kind {
+        isEmbeddedMode = true
+    }
+    
     var hasExpandedAudioTranscription = false
     if let messageNode = messageNode as? ChatMessageBubbleItemNode {
         hasExpandedAudioTranscription = messageNode.hasExpandedAudioTranscription()
@@ -494,7 +507,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                 subItems.append(.action(ContextMenuActionItem(text: presentationData.strings.Common_Back, textColor: .primary, icon: { theme in
                     return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Back"), color: theme.actionSheet.primaryTextColor)
                 }, iconSource: nil, iconPosition: .left, action: { c, _ in
-                    c.popItems()
+                    c?.popItems()
                 })))
                 
                 subItems.append(.separator)
@@ -503,7 +516,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                     subItems.append(.action(ContextMenuActionItem(text: sponsorInfo, textColor: .primary, textLayout: .multiline, textFont: .custom(font: Font.regular(floor(presentationData.listsFontSize.baseDisplaySize * 0.8)), height: nil, verticalOffset: nil), badge: nil, icon: { theme in
                         return nil
                     }, iconSource: nil, action: { [weak controllerInteraction] c, _ in
-                        c.dismiss(completion: {
+                        c?.dismiss(completion: {
                             UIPasteboard.general.string = sponsorInfo
                             
                             let content: UndoOverlayContent = .copy(text: presentationData.strings.Chat_ContextMenu_AdSponsorInfoCopied)
@@ -515,7 +528,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                     subItems.append(.action(ContextMenuActionItem(text: additionalInfo, textColor: .primary, textLayout: .multiline, textFont: .custom(font: Font.regular(floor(presentationData.listsFontSize.baseDisplaySize * 0.8)), height: nil, verticalOffset: nil), badge: nil, icon: { theme in
                         return nil
                     }, iconSource: nil, action: { [weak controllerInteraction] c, _ in
-                        c.dismiss(completion: {
+                        c?.dismiss(completion: {
                             UIPasteboard.general.string = additionalInfo
                             
                             let content: UndoOverlayContent = .copy(text: presentationData.strings.Chat_ContextMenu_AdSponsorInfoCopied)
@@ -524,7 +537,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                     })))
                 }
                 
-                c.pushItems(items: .single(ContextController.Items(content: .list(subItems))))
+                c?.pushItems(items: .single(ContextController.Items(content: .list(subItems))))
             })))
             actions.append(.separator)
         }
@@ -572,7 +585,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             actions.append(.action(ContextMenuActionItem(text: presentationData.strings.Chat_ContextMenu_RemoveAd, textColor: .primary, textLayout: .twoLinesMax, textFont: .custom(font: Font.regular(presentationData.listsFontSize.baseDisplaySize - 1.0), height: nil, verticalOffset: nil), badge: nil, icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Clear"), color: theme.actionSheet.primaryTextColor)
             }, iconSource: nil, action: { c, _ in
-                c.dismiss(completion: {
+                c?.dismiss(completion: {
                     controllerInteraction.openNoAdsDemo()
                 })
             })))
@@ -589,12 +602,12 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                 actions.append(.action(ContextMenuActionItem(text: presentationData.strings.SponsoredMessageMenu_Hide, textColor: .primary, textLayout: .twoLinesMax, textFont: .custom(font: Font.regular(presentationData.listsFontSize.baseDisplaySize - 1.0), height: nil, verticalOffset: nil), badge: nil, icon: { theme in
                     return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Clear"), color: theme.actionSheet.primaryTextColor)
                 }, iconSource: nil, action: { c, _ in
-                    c.dismiss(completion: {
+                    c?.dismiss(completion: {
                         var replaceImpl: ((ViewController) -> Void)?
-                        let controller = context.sharedContext.makePremiumDemoController(context: context, subject: .noAds, action: {
+                        let controller = context.sharedContext.makePremiumDemoController(context: context, subject: .noAds, forceDark: false, action: {
                             let controller = context.sharedContext.makePremiumIntroController(context: context, source: .ads, forceDark: false, dismissed: nil)
                             replaceImpl?(controller)
-                        })
+                        }, dismissed: nil)
                         replaceImpl = { [weak controller] c in
                             controller?.replace(with: c)
                         }
@@ -881,6 +894,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             messageActions = ChatAvailableMessageActions(
                 options: messageActions.options.intersection([.deleteLocally, .deleteGlobally, .forward]),
                 banAuthor: nil,
+                banAuthors: [],
                 disableDelete: true,
                 isCopyProtected: messageActions.isCopyProtected,
                 setTag: false,
@@ -1087,10 +1101,10 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                 }, action: { _, f in
                     let context = context
                     var replaceImpl: ((ViewController) -> Void)?
-                    let controller = context.sharedContext.makePremiumDemoController(context: context, subject: .fasterDownload, action: {
+                    let controller = context.sharedContext.makePremiumDemoController(context: context, subject: .fasterDownload, forceDark: false, action: {
                         let controller = context.sharedContext.makePremiumIntroController(context: context, source: .fasterDownload, forceDark: false, dismissed: nil)
                         replaceImpl?(controller)
-                    })
+                    }, dismissed: nil)
                     replaceImpl = { [weak controller] c in
                         controller?.replace(with: c)
                     }
@@ -1111,7 +1125,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                 return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Reply"), color: theme.actionSheet.primaryTextColor)
             }, action: { c, _ in
                 interfaceInteraction.setupReplyMessage(messages[0].id, { transition, completed in
-                    c.dismiss(result: .custom(transition), completion: {
+                    c?.dismiss(result: .custom(transition), completion: {
                         completed()
                     })
                 })
@@ -1400,7 +1414,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             actions.append(.action(ContextMenuActionItem(text: text, icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Replies"), color: theme.actionSheet.primaryTextColor)
             }, action: { c, _ in
-                c.dismiss(completion: {
+                c?.dismiss(completion: {
                     controllerInteraction.openMessageReplies(messages[0].id, true, true)
                 })
             })))
@@ -1686,7 +1700,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                 actions.append(.action(ContextMenuActionItem(text: chatPresentationInterfaceState.strings.Conversation_ContextViewStats, icon: { theme in
                     return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Statistics"), color: theme.actionSheet.primaryTextColor)
                 }, action: { c, _ in
-                    c.dismiss(completion: {
+                    c?.dismiss(completion: {
                         controllerInteraction.openMessageStats(messages[0].id)
                     })
                 })))
@@ -1695,11 +1709,56 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             clearCacheAsDelete = true
         }
         
+        if let channel = message.peers[message.id.peerId] as? TelegramChannel, case .broadcast = channel.info, canEditFactCheck(appConfig: appConfig) {
+            var canAddFactCheck = true
+            if message.media.contains(where: { $0 is TelegramMediaAction || $0 is TelegramMediaGiveaway }) {
+                canAddFactCheck = false
+            }
+            
+            if canAddFactCheck {
+                let sortedMessages = messages.sorted(by: { $0.id < $1.id })
+                let hasFactCheck = sortedMessages[0].factCheckAttribute != nil
+                let title: String
+                if hasFactCheck {
+                    title = chatPresentationInterfaceState.strings.Conversation_ContextMenuEditFactCheck
+                } else {
+                    title = chatPresentationInterfaceState.strings.Conversation_ContextMenuAddFactCheck
+                }
+                actions.append(.action(ContextMenuActionItem(text: title, icon: { theme in
+                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/FactCheck"), color: theme.actionSheet.primaryTextColor)
+                }, action: { c, f in
+                    c?.dismiss(completion: {
+                        controllerInteraction.editMessageFactCheck(sortedMessages[0].id)
+                    })
+                })))
+            }
+        }
+//        if message.id.peerId.isGroupOrChannel {
+//            //TODO:localize
+//            if message.isAgeRestricted() {
+//                actions.append(.action(ContextMenuActionItem(text: "Unmark as 18+", icon: { theme in
+//                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/AgeUnmark"), color: theme.actionSheet.primaryTextColor)
+//                }, action: { c, _ in
+//                    c?.dismiss(completion: {
+//                        controllerInteraction.openMessageStats(messages[0].id)
+//                    })
+//                })))
+//            } else {
+//                actions.append(.action(ContextMenuActionItem(text: "Mark as 18+", icon: { theme in
+//                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/AgeMark"), color: theme.actionSheet.primaryTextColor)
+//                }, action: { c, _ in
+//                    c?.dismiss(completion: {
+//                        controllerInteraction.openMessageStats(messages[0].id)
+//                    })
+//                })))
+//            }
+//        }
+        
         if isReplyThreadHead {
             actions.append(.action(ContextMenuActionItem(text: chatPresentationInterfaceState.strings.Conversation_ViewInChannel, icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/GoToMessage"), color: theme.actionSheet.primaryTextColor)
             }, action: { c, _ in
-                c.dismiss(completion: {
+                c?.dismiss(completion: {
                     guard let navigationController = controllerInteraction.navigationController() else {
                         return
                     }
@@ -1932,10 +1991,11 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
         }
         
         if let message = messages.first, case let .customChatContents(customChatContents) = chatPresentationInterfaceState.subject {
-            actions.removeAll()
-            
             switch customChatContents.kind {
+            case .hashTagSearch:
+                break
             case .quickReplyMessageInput:
+                actions.removeAll()
                 if !messageText.isEmpty || (resourceAvailable && isImage) || diceEmoji != nil {
                     actions.append(.action(ContextMenuActionItem(text: chatPresentationInterfaceState.strings.Conversation_ContextMenuCopy, icon: { theme in
                         return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Copy"), color: theme.actionSheet.primaryTextColor)
@@ -1999,7 +2059,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                     })))
                 }
             case .businessLinkSetup:
-                break
+                actions.removeAll()
             }
         }
         
@@ -2066,6 +2126,7 @@ func chatAvailableMessageActionsImpl(engine: TelegramEngine, accountPeerId: Peer
         
         var optionsMap: [MessageId: ChatAvailableMessageActionOptions] = [:]
         var banPeer: Peer?
+        var banPeers: [Peer] = []
         var hadPersonalIncoming = false
         var hadBanPeerId = false
         var disableDelete = false
@@ -2180,25 +2241,35 @@ func chatAvailableMessageActionsImpl(engine: TelegramEngine, accountPeerId: Peer
                         if message.flags.contains(.Incoming) {
                             optionsMap[id]!.insert(.report)
                         }
-                        if channel.hasPermission(.banMembers), case .group = channel.info {
+                        if (channel.hasPermission(.banMembers) || channel.hasPermission(.deleteAllMessages)), case .group = channel.info {
                             if message.flags.contains(.Incoming) {
-                                if message.author is TelegramUser {
-                                    if !hadBanPeerId {
+                                if let author = message.author {
+                                    if author is TelegramUser {
+                                        if !hadBanPeerId {
+                                            hadBanPeerId = true
+                                            banPeer = author
+                                        } else if banPeer?.id != message.author?.id {
+                                            banPeer = nil
+                                        }
+                                        
+                                        if !banPeers.contains(where: { $0.id == author.id }) {
+                                            banPeers.append(author)
+                                        }
+                                    } else if author is TelegramChannel {
+                                        if !hadBanPeerId {
+                                            hadBanPeerId = true
+                                            banPeer = author
+                                        } else if banPeer?.id != message.author?.id {
+                                            banPeer = nil
+                                        }
+                                        
+                                        if !banPeers.contains(where: { $0.id == author.id }) {
+                                            banPeers.append(author)
+                                        }
+                                    } else {
                                         hadBanPeerId = true
-                                        banPeer = message.author
-                                    } else if banPeer?.id != message.author?.id {
                                         banPeer = nil
                                     }
-                                } else if message.author is TelegramChannel {
-                                    if !hadBanPeerId {
-                                        hadBanPeerId = true
-                                        banPeer = message.author
-                                    } else if banPeer?.id != message.author?.id {
-                                        banPeer = nil
-                                    }
-                                } else {
-                                    hadBanPeerId = true
-                                    banPeer = nil
                                 }
                             } else {
                                 hadBanPeerId = true
@@ -2338,9 +2409,9 @@ func chatAvailableMessageActionsImpl(engine: TelegramEngine, accountPeerId: Peer
                 commonTags = nil
             }
             
-            return ChatAvailableMessageActions(options: reducedOptions, banAuthor: banPeer, disableDelete: disableDelete, isCopyProtected: isCopyProtected, setTag: setTag, editTags: commonTags ?? Set())
+            return ChatAvailableMessageActions(options: reducedOptions, banAuthor: banPeer, banAuthors: banPeers, disableDelete: disableDelete, isCopyProtected: isCopyProtected, setTag: setTag, editTags: commonTags ?? Set())
         } else {
-            return ChatAvailableMessageActions(options: [], banAuthor: nil, disableDelete: false, isCopyProtected: isCopyProtected, setTag: false, editTags: Set())
+            return ChatAvailableMessageActions(options: [], banAuthor: nil, banAuthors: [], disableDelete: false, isCopyProtected: isCopyProtected, setTag: false, editTags: Set())
         }
     }
 }

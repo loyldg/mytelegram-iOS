@@ -101,6 +101,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
     case storiesJpegExperiment(Bool)
     case playlistPlayback(Bool)
     case enableQuickReactionSwitch(Bool)
+    case disableReloginTokens(Bool)
     case voiceConference
     case preferredVideoCodec(Int, String, String?, Bool)
     case disableVideoAspectScaling(Bool)
@@ -126,7 +127,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return DebugControllerSection.web.rawValue
         case .keepChatNavigationStack, .skipReadHistory, .dustEffect, .crashOnSlowQueries, .crashOnMemoryPressure:
             return DebugControllerSection.experiments.rawValue
-        case .clearTips, .resetNotifications, .crash, .fillLocalSavedMessageCache, .resetDatabase, .resetDatabaseAndCache, .resetHoles, .resetTagHoles, .reindexUnread, .resetCacheIndex, .reindexCache, .resetBiometricsData, .optimizeDatabase, .photoPreview, .knockoutWallpaper, .storiesExperiment, .storiesJpegExperiment, .playlistPlayback, .enableQuickReactionSwitch, .voiceConference, .experimentalCompatibility, .enableDebugDataDisplay, .acceleratedStickers, .browserExperiment, .localTranscription, .enableReactionOverrides, .restorePurchases:
+        case .clearTips, .resetNotifications, .crash, .fillLocalSavedMessageCache, .resetDatabase, .resetDatabaseAndCache, .resetHoles, .resetTagHoles, .reindexUnread, .resetCacheIndex, .reindexCache, .resetBiometricsData, .optimizeDatabase, .photoPreview, .knockoutWallpaper, .storiesExperiment, .storiesJpegExperiment, .playlistPlayback, .enableQuickReactionSwitch, .voiceConference, .experimentalCompatibility, .enableDebugDataDisplay, .acceleratedStickers, .browserExperiment, .localTranscription, .enableReactionOverrides, .restorePurchases, .disableReloginTokens:
             return DebugControllerSection.experiments.rawValue
         case .logTranslationRecognition, .resetTranslationStates:
             return DebugControllerSection.translation.rawValue
@@ -233,14 +234,16 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return 46
         case .storiesJpegExperiment:
             return 47
-        case .playlistPlayback:
+        case .disableReloginTokens:
             return 48
-        case .enableQuickReactionSwitch:
+        case .playlistPlayback:
             return 49
-        case .voiceConference:
+        case .enableQuickReactionSwitch:
             return 50
+        case .voiceConference:
+            return 51
         case let .preferredVideoCodec(index, _, _, _):
-            return 51 + index
+            return 52 + index
         case .disableVideoAspectScaling:
             return 100
         case .enableNetworkFramework:
@@ -273,7 +276,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
                     } else {
                         UIPasteboard.general.setData(data, forPasteboardType: dataType)
                     }
-                    context.sharedContext.openResolvedUrl(.importStickers, context: context, urlContext: .generic, navigationController: arguments.getNavigationController(), forceExternal: false, openPeer: { _, _ in }, sendFile: nil, sendSticker: nil, requestMessageActionUrlAuth: nil, joinVoiceChat: nil, present: { c, a in arguments.presentController(c, a as? ViewControllerPresentationArguments) }, dismissInput: {}, contentContext: nil, progress: nil, completion: nil)
+                    context.sharedContext.openResolvedUrl(.importStickers, context: context, urlContext: .generic, navigationController: arguments.getNavigationController(), forceExternal: false, openPeer: { _, _ in }, sendFile: nil, sendSticker: nil, sendEmoji: nil, requestMessageActionUrlAuth: nil, joinVoiceChat: nil, present: { c, a in arguments.presentController(c, a as? ViewControllerPresentationArguments) }, dismissInput: {}, contentContext: nil, progress: nil, completion: nil)
                 }
             })
         case .sendLogs:
@@ -1371,6 +1374,14 @@ private enum DebugControllerEntry: ItemListNodeEntry {
                     }
                 })
             })
+        case let .disableReloginTokens(value):
+            return ItemListSwitchItem(presentationData: presentationData, title: "Disable Relogin Tokens", value: value, sectionId: self.section, style: .blocks, updated: { value in
+                let _ = updateExperimentalUISettingsInteractively(accountManager: arguments.sharedContext.accountManager, { settings in
+                    var settings = settings
+                    settings.disableReloginTokens = value
+                    return settings
+                }).start()
+            })
         case let .hostInfo(_, string):
             return ItemListTextItem(presentationData: presentationData, text: .plain(string), sectionId: self.section)
         case .versionInfo:
@@ -1449,10 +1460,11 @@ private func debugControllerEntries(sharedContext: SharedAccountContext, present
         
         entries.append(.logTranslationRecognition(experimentalSettings.logLanguageRecognition))
         entries.append(.resetTranslationStates)
-        
+                
         if case .internal = sharedContext.applicationBindings.appBuildType {
             entries.append(.storiesExperiment(experimentalSettings.storiesExperiment))
             entries.append(.storiesJpegExperiment(experimentalSettings.storiesJpegExperiment))
+            entries.append(.disableReloginTokens(experimentalSettings.disableReloginTokens))
         }
         entries.append(.playlistPlayback(experimentalSettings.playlistPlayback))
         entries.append(.enableQuickReactionSwitch(!experimentalSettings.disableQuickReaction))

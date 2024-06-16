@@ -1589,6 +1589,13 @@ public extension EmojiPagerContentComponent {
         return emojiItems
     }
     
+    enum StickersSubject {
+        case profilePhotoEmojiSelection
+        case groupPhotoEmojiSelection
+        case chatStickers
+        case greetingStickers
+    }
+    
     static func stickerInputData(
         context: AccountContext,
         animationCache: AnimationCache,
@@ -1600,9 +1607,9 @@ public extension EmojiPagerContentComponent {
         hasTrending: Bool,
         forceHasPremium: Bool,
         hasEdit: Bool = false,
+        hasAdd: Bool = false,
         searchIsPlaceholderOnly: Bool = true,
-        isProfilePhotoEmojiSelection: Bool = false,
-        isGroupPhotoEmojiSelection: Bool = false,
+        subject: StickersSubject = .chatStickers,
         hideBackground: Bool = false
     ) -> Signal<EmojiPagerContentComponent, NoError> {
         let premiumConfiguration = PremiumConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 })
@@ -1653,11 +1660,41 @@ public extension EmojiPagerContentComponent {
         let strings = context.sharedContext.currentPresentationData.with({ $0 }).strings
         
         let searchCategories: Signal<EmojiSearchCategories?, NoError>
-        if isProfilePhotoEmojiSelection || isGroupPhotoEmojiSelection {
+        switch subject {
+        case .groupPhotoEmojiSelection, .profilePhotoEmojiSelection:
             searchCategories = context.engine.stickers.emojiSearchCategories(kind: .avatar)
-        } else {
-            searchCategories = context.engine.stickers.emojiSearchCategories(kind: .emoji)
+        case .chatStickers, .greetingStickers:
+            searchCategories = context.engine.stickers.emojiSearchCategories(kind: .combinedChatStickers)
+            |> map { result -> EmojiSearchCategories? in
+                guard let result else {
+                    return nil
+                }
+                
+                var groups: [EmojiSearchCategories.Group] = []
+                groups = result.groups
+                if case .greetingStickers = subject {
+                    if let index = groups.firstIndex(where: { group in
+                        return group.kind == .greeting
+                    }) {
+                        let group = groups.remove(at: index)
+                        groups.insert(group, at: 0)
+                    }
+                } else if case .chatStickers = subject {
+                    if let index = groups.firstIndex(where: { group in
+                        return group.kind == .premium
+                    }) {
+                        let group = groups.remove(at: index)
+                        groups.append(group)
+                    }
+                }
+                
+                return EmojiSearchCategories(
+                    hash: result.hash,
+                    groups: groups
+                )
+            }
         }
+        
         return combineLatest(
             context.account.postbox.itemCollectionsView(orderedItemListCollectionIds: stickerOrderedItemListCollectionIds, namespaces: stickerNamespaces, aroundIndex: nil, count: 10000000),
             hasPremium(context: context, chatPeerId: chatPeerId, premiumIfSavedMessages: false),
@@ -1854,7 +1891,7 @@ public extension EmojiPagerContentComponent {
                     }
                 }
                 
-                if hasEdit && !addedCreateStickerButton, let groupIndex = itemGroupIndexById[groupId] {
+                if hasAdd && !addedCreateStickerButton, let groupIndex = itemGroupIndexById[groupId] {
                     let resultItem = EmojiPagerContentComponent.Item(
                         animationData: nil,
                         content: .icon(.add),
@@ -2091,6 +2128,14 @@ public extension EmojiPagerContentComponent {
                 )
             }
             
+            let warpContentsOnEdges: Bool
+            switch subject {
+            case .profilePhotoEmojiSelection, .groupPhotoEmojiSelection:
+                warpContentsOnEdges = true
+            default:
+                warpContentsOnEdges = false
+            }
+            
             return EmojiPagerContentComponent(
                 id: isMasks ? "masks" : "stickers",
                 context: context,
@@ -2103,13 +2148,165 @@ public extension EmojiPagerContentComponent {
                 itemLayoutType: .detailed,
                 itemContentUniqueId: nil,
                 searchState: .empty(hasResults: false),
-                warpContentsOnEdges: isProfilePhotoEmojiSelection || isGroupPhotoEmojiSelection,
+                warpContentsOnEdges: warpContentsOnEdges,
                 hideBackground: hideBackground,
                 displaySearchWithPlaceholder: hasSearch ? strings.StickersSearch_SearchStickersPlaceholder : nil,
                 searchCategories: searchCategories,
                 searchInitiallyHidden: true,
                 searchAlwaysActive: false,
                 searchIsPlaceholderOnly: searchIsPlaceholderOnly,
+                searchUnicodeEmojiOnly: false,
+                emptySearchResults: nil,
+                enableLongPress: false,
+                selectedItems: Set(),
+                customTintColor: nil
+            )
+        }
+    }
+    
+    static func messageEffectsInputData(
+        context: AccountContext,
+        animationCache: AnimationCache,
+        animationRenderer: MultiAnimationRenderer,
+        hasSearch: Bool,
+        hideBackground: Bool = false
+    ) -> Signal<EmojiPagerContentComponent, NoError> {
+        let premiumConfiguration = PremiumConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 })
+        let isPremiumDisabled = premiumConfiguration.isPremiumDisabled
+        
+        let strings = context.sharedContext.currentPresentationData.with({ $0 }).strings
+        
+        let searchCategories: Signal<EmojiSearchCategories?, NoError> = context.engine.stickers.emojiSearchCategories(kind: .emoji)
+        
+        return combineLatest(
+            hasPremium(context: context, chatPeerId: nil, premiumIfSavedMessages: false),
+            context.engine.stickers.availableMessageEffects(),
+            searchCategories
+        )
+        |> map { hasPremium, availableMessageEffects, searchCategories -> EmojiPagerContentComponent in
+            struct ItemGroup {
+                var supergroupId: AnyHashable
+                var id: AnyHashable
+                var title: String?
+                var subtitle: String?
+                var actionButtonTitle: String?
+                var isPremiumLocked: Bool
+                var isFeatured: Bool
+                var displayPremiumBadges: Bool
+                var hasEdit: Bool
+                var headerItem: EntityKeyboardAnimationData?
+                var items: [EmojiPagerContentComponent.Item]
+            }
+            var itemGroups: [ItemGroup] = []
+            var itemGroupIndexById: [AnyHashable: Int] = [:]
+            
+            if let availableMessageEffects {
+                var reactionEffects: [AvailableMessageEffects.MessageEffect] = []
+                var stickerEffects: [AvailableMessageEffects.MessageEffect] = []
+                for messageEffect in availableMessageEffects.messageEffects {
+                    if messageEffect.effectAnimation != nil {
+                        reactionEffects.append(messageEffect)
+                    } else {
+                        stickerEffects.append(messageEffect)
+                    }
+                }
+                
+                for i in 0 ..< 2 {
+                    let groupId = i == 0 ? "reactions" : "stickers"
+                    for item in i == 0 ? reactionEffects : stickerEffects {
+                        if item.isPremium && isPremiumDisabled {
+                            continue
+                        }
+                        
+                        let itemFile: TelegramMediaFile = item.effectSticker
+                        
+                        var tintMode: Item.TintMode = .none
+                        if itemFile.isCustomTemplateEmoji {
+                            tintMode = .primary
+                        }
+                        
+                        let icon: EmojiPagerContentComponent.Item.Icon
+                        if i == 0 {
+                            if !hasPremium && item.isPremium {
+                                icon = .locked
+                            } else {
+                                icon = .none
+                            }
+                        } else {
+                            if !hasPremium && item.isPremium {
+                                icon = .locked
+                            } else if let staticIcon = item.staticIcon {
+                                icon = .customFile(staticIcon)
+                            } else {
+                                icon = .text(item.emoticon)
+                            }
+                        }
+                        
+                        let animationData = EntityKeyboardAnimationData(file: itemFile, partialReference: .none)
+                        let resultItem = EmojiPagerContentComponent.Item(
+                            animationData: animationData,
+                            content: .animation(animationData),
+                            itemFile: itemFile,
+                            subgroupId: nil,
+                            icon: icon,
+                            tintMode: tintMode
+                        )
+                        
+                        if let groupIndex = itemGroupIndexById[groupId] {
+                            itemGroups[groupIndex].items.append(resultItem)
+                        } else {
+                            itemGroupIndexById[groupId] = itemGroups.count
+                            itemGroups.append(ItemGroup(supergroupId: groupId, id: groupId, title: i == 0 ? nil : strings.Chat_MessageEffectMenu_SectionMessageEffects, subtitle: nil, actionButtonTitle: nil, isPremiumLocked: false, isFeatured: false, displayPremiumBadges: false, hasEdit: false, headerItem: nil, items: [resultItem]))
+                        }
+                    }
+                }
+            }
+            
+            let warpContentsOnEdges: Bool = true
+            
+            let allItemGroups = itemGroups.map { group -> EmojiPagerContentComponent.ItemGroup in
+                let hasClear = false
+                let isEmbedded = false
+                
+                return EmojiPagerContentComponent.ItemGroup(
+                    supergroupId: group.supergroupId,
+                    groupId: group.id,
+                    title: group.title,
+                    subtitle: group.subtitle,
+                    badge: nil,
+                    actionButtonTitle: group.actionButtonTitle,
+                    isFeatured: group.isFeatured,
+                    isPremiumLocked: group.isPremiumLocked,
+                    isEmbedded: isEmbedded,
+                    hasClear: hasClear,
+                    hasEdit: group.hasEdit,
+                    collapsedLineCount: nil,
+                    displayPremiumBadges: group.displayPremiumBadges,
+                    headerItem: group.headerItem,
+                    fillWithLoadingPlaceholders: false,
+                    items: group.items
+                )
+            }
+            
+            return EmojiPagerContentComponent(
+                id: "stickers",
+                context: context,
+                avatarPeer: nil,
+                animationCache: animationCache,
+                animationRenderer: animationRenderer,
+                inputInteractionHolder: EmojiPagerContentComponent.InputInteractionHolder(),
+                panelItemGroups: [],
+                contentItemGroups: allItemGroups,
+                itemLayoutType: .detailed,
+                itemContentUniqueId: nil,
+                searchState: .empty(hasResults: false),
+                warpContentsOnEdges: warpContentsOnEdges,
+                hideBackground: hideBackground,
+                displaySearchWithPlaceholder: hasSearch ? strings.StickersSearch_SearchStickersPlaceholder : nil,
+                searchCategories: searchCategories,
+                searchInitiallyHidden: true,
+                searchAlwaysActive: false,
+                searchIsPlaceholderOnly: false,
                 searchUnicodeEmojiOnly: false,
                 emptySearchResults: nil,
                 enableLongPress: false,

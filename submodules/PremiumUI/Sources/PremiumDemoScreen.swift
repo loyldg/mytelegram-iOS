@@ -20,29 +20,40 @@ import TelegramUIPreferences
 
 public final class PremiumGradientBackgroundComponent: Component {
     public let colors: [UIColor]
+    public let cornerRadius: CGFloat
+    public let topOverscroll: Bool
     
     public init(
-        colors: [UIColor]
+        colors: [UIColor],
+        cornerRadius: CGFloat = 10.0,
+        topOverscroll: Bool = false
     ) {
         self.colors = colors
+        self.cornerRadius = cornerRadius
+        self.topOverscroll = topOverscroll
     }
     
     public static func ==(lhs: PremiumGradientBackgroundComponent, rhs: PremiumGradientBackgroundComponent) -> Bool {
         if lhs.colors != rhs.colors {
             return false
         }
+        if lhs.cornerRadius != rhs.cornerRadius {
+            return false
+        }
+        if lhs.topOverscroll != rhs.topOverscroll {
+            return false
+        }
         return true
     }
     
     public final class View: UIView {
-        private let clipLayer: CALayer
+        private let clipLayer: CAReplicatorLayer
         private let gradientLayer: CAGradientLayer
         
         private var component: PremiumGradientBackgroundComponent?
         
         override init(frame: CGRect) {
-            self.clipLayer = CALayer()
-            self.clipLayer.cornerRadius = 10.0
+            self.clipLayer = CAReplicatorLayer()
             self.clipLayer.masksToBounds = true
             
             self.gradientLayer = CAGradientLayer()
@@ -61,21 +72,35 @@ public final class PremiumGradientBackgroundComponent: Component {
         func update(component: PremiumGradientBackgroundComponent, availableSize: CGSize, state: EmptyComponentState, environment: Environment<Empty>, transition: Transition) -> CGSize {
             self.clipLayer.frame = CGRect(origin: .zero, size: CGSize(width: availableSize.width, height: availableSize.height + 10.0))
             self.gradientLayer.frame = CGRect(origin: .zero, size: availableSize)
-        
+            
             var locations: [NSNumber] = []
             let delta = 1.0 / CGFloat(component.colors.count - 1)
             for i in 0 ..< component.colors.count {
                 locations.append((delta * CGFloat(i)) as NSNumber)
             }
+
             self.gradientLayer.locations = locations
             self.gradientLayer.colors = component.colors.reversed().map { $0.cgColor }
             self.gradientLayer.type = .radial
             self.gradientLayer.startPoint = CGPoint(x: 1.0, y: 0.0)
             self.gradientLayer.endPoint = CGPoint(x: -2.0, y: 3.0)
+
+            self.clipLayer.cornerRadius = component.cornerRadius
             
             self.component = component
             
             self.setupGradientAnimations()
+            
+            if component.topOverscroll {
+                self.clipLayer.instanceCount = 2
+                var instanceTransform = CATransform3DIdentity
+                instanceTransform = CATransform3DTranslate(instanceTransform, 0.0, -availableSize.height * 1.5, 0.0)
+                instanceTransform = CATransform3DScale(instanceTransform, 1.0, -2.0, 1.0)
+                self.clipLayer.instanceTransform = instanceTransform
+                self.clipLayer.masksToBounds = false
+            } else {
+                self.clipLayer.masksToBounds = true
+            }
             
             return availableSize
         }
@@ -1082,7 +1107,7 @@ private final class DemoSheetContent: CombinedComponent {
                             id: "background",
                             component: AnyComponent(
                                 BlurredBackgroundComponent(
-                                    color:  UIColor(rgb: 0x888888, alpha: 0.1)
+                                    color: UIColor(rgb: 0x888888, alpha: 0.1)
                                 )
                             )
                         ),
@@ -1425,6 +1450,71 @@ public class PremiumDemoScreen: ViewControllerComponentContainer {
         case businessChatBots
         case businessIntro
         case businessLinks
+        
+        public var perk: PremiumPerk {
+            switch self {
+            case .doubleLimits:
+                return .doubleLimits
+            case .moreUpload:
+                return .moreUpload
+            case .fasterDownload:
+                return .fasterDownload
+            case .voiceToText:
+                return .voiceToText
+            case .noAds:
+                return .noAds
+            case .uniqueReactions:
+                return .uniqueReactions
+            case .premiumStickers:
+                return .premiumStickers
+            case .advancedChatManagement:
+                return .advancedChatManagement
+            case .profileBadge:
+                return .profileBadge
+            case .animatedUserpics:
+                return .animatedUserpics
+            case .appIcons:
+                return .appIcons
+            case .animatedEmoji:
+                return .animatedEmoji
+            case .emojiStatus:
+                return .emojiStatus
+            case .translation:
+                return .translation
+            case .stories:
+                return .stories
+            case .colors:
+                return .colors
+            case .wallpapers:
+                return .wallpapers
+            case .messageTags:
+                return .messageTags
+            case .lastSeen:
+                return .lastSeen
+            case .messagePrivacy:
+                return .messagePrivacy
+            case .business:
+                return .business
+            case .folderTags:
+                return .folderTags
+            case .businessLocation:
+                return .businessLocation
+            case .businessHours:
+                return .businessHours
+            case .businessGreetingMessage:
+                return .businessGreetingMessage
+            case .businessQuickReplies:
+                return .businessQuickReplies
+            case .businessAwayMessage:
+                return .businessAwayMessage
+            case .businessChatBots:
+                return .businessChatBots
+            case .businessIntro:
+                return .businessIntro
+            case .businessLinks:
+                return .businessLinks
+            }
+        }
     }
     
     public enum Source: Equatable {

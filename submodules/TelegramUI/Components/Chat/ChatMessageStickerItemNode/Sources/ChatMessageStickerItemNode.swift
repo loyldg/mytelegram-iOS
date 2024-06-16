@@ -58,6 +58,7 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
     private var replyBackgroundContent: WallpaperBubbleBackgroundNode?
     private var forwardInfoNode: ChatMessageForwardInfoNode?
     private var forwardBackgroundContent: WallpaperBubbleBackgroundNode?
+    private var forwardBackgroundMaskNode: LinkHighlightingNode?
     
     private var actionButtonsNode: ChatMessageActionButtonsNode?
     private var reactionButtonsNode: ChatMessageReactionButtonsNode?
@@ -75,6 +76,9 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
 
     private var enableSynchronousImageApply: Bool = false
     
+    private var wasPending: Bool = false
+    private var didChangeFromPendingToSent: Bool = false
+    
     override public var visibility: ListViewItemNodeVisibility {
         didSet {
             let wasVisible = oldValue != .none
@@ -91,6 +95,8 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
             if self.visibilityStatus != oldValue {
                 self.threadInfoNode?.visibility = self.visibilityStatus == true
                 self.replyInfoNode?.visibility = self.visibilityStatus == true
+                
+                self.updateVisibility()
             }
         }
     }
@@ -278,6 +284,13 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
     
     override public func setupItem(_ item: ChatMessageItem, synchronousLoad: Bool) {
         super.setupItem(item, synchronousLoad: synchronousLoad)
+        
+        if item.message.id.namespace == Namespaces.Message.Local || item.message.id.namespace == Namespaces.Message.ScheduledLocal || item.message.id.namespace == Namespaces.Message.QuickReplyLocal {
+            self.wasPending = true
+        }
+        if self.wasPending && (item.message.id.namespace != Namespaces.Message.Local && item.message.id.namespace != Namespaces.Message.ScheduledLocal && item.message.id.namespace != Namespaces.Message.QuickReplyLocal) {
+            self.didChangeFromPendingToSent = true
+        }
         
         self.replyRecognizer?.allowBothDirections = false//!item.context.sharedContext.immediateExperimentalUISettings.unidirectionalSwipeToReply
         if self.isNodeLoaded {
@@ -630,6 +643,7 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                 reactionPeers: dateReactionsAndPeers.peers,
                 displayAllReactionPeers: item.message.id.peerId.namespace == Namespaces.Peer.CloudUser,
                 areReactionsTags: item.message.areReactionsTags(accountPeerId: item.context.account.peerId),
+                messageEffect: item.message.messageEffect(availableMessageEffects: item.associatedData.availableMessageEffects),
                 replyCount: dateReplies,
                 isPinned: item.message.tags.contains(.pinned) && !item.associatedData.isInPinnedListMode && !isReplyThread,
                 hasAutoremove: item.message.isSelfExpiring,
@@ -717,6 +731,7 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                     context: item.context,
                     controllerInteraction: item.controllerInteraction,
                     type: .standalone,
+                    peer: nil,
                     threadId: item.message.threadId ?? 1,
                     parentMessage: item.message,
                     constrainedSize: CGSize(width: availableWidth, height: CGFloat.greatestFiniteMagnitude),
@@ -1110,7 +1125,9 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                     
                     var forwardBackgroundFrame: CGRect?
                     if let forwardAreaFrame {
-                        forwardBackgroundFrame = forwardAreaFrame.insetBy(dx: -6.0, dy: -3.0)
+                        var forwardBackgroundFrameValue = forwardAreaFrame.insetBy(dx: -6.0, dy: -3.0)
+                        forwardBackgroundFrameValue.size.height += 2.0
+                        forwardBackgroundFrame = forwardBackgroundFrameValue
                     }
                     
                     var replyBackgroundFrame: CGRect?
@@ -1147,7 +1164,17 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                     }
                     
                     if let backgroundContent = strongSelf.forwardBackgroundContent, let forwardBackgroundFrame {
-                        backgroundContent.cornerRadius = 4.0
+                        let forwardBackgroundMaskNode: LinkHighlightingNode
+                        if let current = strongSelf.forwardBackgroundMaskNode {
+                            forwardBackgroundMaskNode = current
+                        } else {
+                            forwardBackgroundMaskNode = LinkHighlightingNode(color: .black)
+                            forwardBackgroundMaskNode.inset = 4.0
+                            forwardBackgroundMaskNode.outerRadius = 12.0
+                            strongSelf.forwardBackgroundMaskNode = forwardBackgroundMaskNode
+                            backgroundContent.view.mask = forwardBackgroundMaskNode.view
+                        }
+                        
                         backgroundContent.frame = forwardBackgroundFrame
                         if let (rect, containerSize) = strongSelf.absoluteRect {
                             var backgroundFrame = backgroundContent.frame
@@ -1155,6 +1182,28 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                             backgroundFrame.origin.y += rect.minY
                             backgroundContent.update(rect: backgroundFrame, within: containerSize, transition: .immediate)
                         }
+                        
+                        if let forwardInfoNode = strongSelf.forwardInfoNode {
+                            forwardBackgroundMaskNode.frame = backgroundContent.bounds.offsetBy(dx: forwardInfoNode.frame.minX - backgroundContent.frame.minX, dy: forwardInfoNode.frame.minY - backgroundContent.frame.minY)
+                            var backgroundRects = forwardInfoNode.getBoundingRects()
+                            for i in 0 ..< backgroundRects.count {
+                                backgroundRects[i].origin.x -= 2.0
+                                backgroundRects[i].size.width += 4.0
+                            }
+                            for i in 0 ..< backgroundRects.count {
+                                if i != 0 {
+                                    if abs(backgroundRects[i - 1].maxX - backgroundRects[i].maxX) < 16.0 {
+                                        let maxMaxX = max(backgroundRects[i - 1].maxX, backgroundRects[i].maxX)
+                                        backgroundRects[i - 1].size.width = max(0.0, maxMaxX - backgroundRects[i - 1].origin.x)
+                                        backgroundRects[i].size.width = max(0.0, maxMaxX - backgroundRects[i].origin.x)
+                                    }
+                                }
+                            }
+                            forwardBackgroundMaskNode.updateRects(backgroundRects)
+                        }
+                    } else if let forwardBackgroundMaskNode = strongSelf.forwardBackgroundMaskNode {
+                        strongSelf.forwardBackgroundMaskNode = nil
+                        forwardBackgroundMaskNode.view.removeFromSuperview()
                     }
                                         
                     let panelsAlpha: CGFloat = item.controllerInteraction.selectionState == nil ? 1.0 : 0.0
@@ -1214,14 +1263,24 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                                 }
                             }
                             strongSelf.addSubnode(actionButtonsNode)
+                            
+                            if animation.isAnimated {
+                                actionButtonsNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.25)
+                            }
                         } else {
                             if case let .System(duration, _) = animation {
                                 actionButtonsNode.layer.animateFrame(from: previousFrame, to: actionButtonsFrame, duration: duration, timingFunction: kCAMediaTimingFunctionSpring)
                             }
                         }
                     } else if let actionButtonsNode = strongSelf.actionButtonsNode {
-                        actionButtonsNode.removeFromSupernode()
                         strongSelf.actionButtonsNode = nil
+                        if animation.isAnimated {
+                            actionButtonsNode.layer.animateAlpha(from: actionButtonsNode.alpha, to: 0.0, duration: 0.25, removeOnCompletion: false, completion: { _ in
+                                actionButtonsNode.removeFromSupernode()
+                            })
+                        } else {
+                            actionButtonsNode.removeFromSupernode()
+                        }
                     }
                     
                     if let reactionButtonsSizeAndApply = reactionButtonsSizeAndApply {
@@ -1306,6 +1365,8 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                         
                         f()
                     }
+                    
+                    strongSelf.updateVisibility()
                 }
             }
             
@@ -1409,7 +1470,7 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                                     if case let .broadcast(info) = channel.info, info.flags.contains(.hasDiscussionGroup) {
                                     } else if case .member = channel.participationStatus {
                                     } else {
-                                        item.controllerInteraction.displayMessageTooltip(item.message.id, item.presentationData.strings.Conversation_PrivateChannelTooltip, forwardInfoNode, nil)
+                                        item.controllerInteraction.displayMessageTooltip(item.message.id, item.presentationData.strings.Conversation_PrivateChannelTooltip, false, forwardInfoNode, nil)
                                         return
                                     }
                                 }
@@ -1417,7 +1478,7 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                             } else if let peer = forwardInfo.source ?? forwardInfo.author {
                                 item.controllerInteraction.openPeer(EnginePeer(peer), peer is TelegramUser ? .info(nil) : .chat(textInputState: nil, subject: nil, peekData: nil), nil, .default)
                             } else if let _ = forwardInfo.authorSignature {
-                                item.controllerInteraction.displayMessageTooltip(item.message.id, item.presentationData.strings.Conversation_ForwardAuthorHiddenTooltip, forwardInfoNode, nil)
+                                item.controllerInteraction.displayMessageTooltip(item.message.id, item.presentationData.strings.Conversation_ForwardAuthorHiddenTooltip, false, forwardInfoNode, nil)
                             }
                         }
                         
@@ -1753,8 +1814,8 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
         self.layer.removeAllAnimations()
     }
     
-    override public func animateInsertion(_ currentTimestamp: Double, duration: Double, short: Bool) {
-        super.animateInsertion(currentTimestamp, duration: duration, short: short)
+    override public func animateInsertion(_ currentTimestamp: Double, duration: Double, options: ListViewItemAnimationOptions) {
+        super.animateInsertion(currentTimestamp, duration: duration, options: options)
         
         self.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
     }
@@ -2083,5 +2144,54 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
         }
         
         return (image, self.imageNode.frame)
+    }
+    
+    private func updateVisibility() {
+        guard let item = self.item else {
+            return
+        }
+        
+        var isPlaying = true
+        if case .visible = self.visibility {
+        } else {
+            isPlaying = false
+        }
+        
+        if !isPlaying {
+            self.removeEffectAnimations()
+        }
+        
+        if isPlaying {
+            var alreadySeen = true
+            if item.message.flags.contains(.Incoming) {
+                if let unreadRange = item.controllerInteraction.unreadMessageRange[UnreadMessageRangeKey(peerId: item.message.id.peerId, namespace: item.message.id.namespace)] {
+                    if unreadRange.contains(item.message.id.id) {
+                        if !item.controllerInteraction.seenOneTimeAnimatedMedia.contains(item.message.id) {
+                            alreadySeen = false
+                        }
+                    }
+                }
+            } else {
+                if self.didChangeFromPendingToSent {
+                    if !item.controllerInteraction.seenOneTimeAnimatedMedia.contains(item.message.id) {
+                        alreadySeen = false
+                    }
+                }
+            }
+            
+            if !alreadySeen {
+                item.controllerInteraction.seenOneTimeAnimatedMedia.insert(item.message.id)
+                
+                self.playMessageEffect(force: false)
+            }
+        }
+    }
+    
+    override public func messageEffectTargetView() -> UIView? {
+        if let result = self.dateAndStatusNode.messageEffectTargetView() {
+            return result
+        }
+        
+        return nil
     }
 }

@@ -147,6 +147,7 @@ private func processPollText(_ text: String) -> String {
 }
 
 private final class CreatePollControllerArguments {
+    let context: AccountContext
     let updatePollText: (String) -> Void
     let updateOptionText: (Int, String, Bool) -> Void
     let moveToNextOption: (Int) -> Void
@@ -163,7 +164,8 @@ private final class CreatePollControllerArguments {
     let solutionTextFocused: (Bool) -> Void
     let questionTextFocused: (Bool) -> Void
     
-    init(updatePollText: @escaping (String) -> Void, updateOptionText: @escaping (Int, String, Bool) -> Void, moveToNextOption: @escaping (Int) -> Void, moveToPreviousOption: @escaping (Int) -> Void, removeOption: @escaping (Int, Bool) -> Void, optionFocused: @escaping (Int, Bool) -> Void, setItemIdWithRevealedOptions: @escaping (Int?, Int?) -> Void, toggleOptionSelected: @escaping (Int) -> Void, updateAnonymous: @escaping (Bool) -> Void, updateMultipleChoice: @escaping (Bool) -> Void, displayMultipleChoiceDisabled: @escaping () -> Void, updateQuiz: @escaping (Bool) -> Void, updateSolutionText: @escaping (NSAttributedString) -> Void, solutionTextFocused: @escaping (Bool) -> Void, questionTextFocused: @escaping (Bool) -> Void) {
+    init(context: AccountContext, updatePollText: @escaping (String) -> Void, updateOptionText: @escaping (Int, String, Bool) -> Void, moveToNextOption: @escaping (Int) -> Void, moveToPreviousOption: @escaping (Int) -> Void, removeOption: @escaping (Int, Bool) -> Void, optionFocused: @escaping (Int, Bool) -> Void, setItemIdWithRevealedOptions: @escaping (Int?, Int?) -> Void, toggleOptionSelected: @escaping (Int) -> Void, updateAnonymous: @escaping (Bool) -> Void, updateMultipleChoice: @escaping (Bool) -> Void, displayMultipleChoiceDisabled: @escaping () -> Void, updateQuiz: @escaping (Bool) -> Void, updateSolutionText: @escaping (NSAttributedString) -> Void, solutionTextFocused: @escaping (Bool) -> Void, questionTextFocused: @escaping (Bool) -> Void) {
+        self.context = context
         self.updatePollText = updatePollText
         self.updateOptionText = updateOptionText
         self.moveToNextOption = moveToNextOption
@@ -397,7 +399,7 @@ private enum CreatePollEntry: ItemListNodeEntry {
         case let .quizSolutionHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .quizSolutionText(placeholder, text):
-            return CreatePollTextInputItem(presentationData: presentationData, text: text.value, placeholder: placeholder, maxLength: CreatePollTextInputItemTextLimit(value: 200, display: true), sectionId: self.section, style: .blocks, textUpdated: { text in
+            return CreatePollTextInputItem(context: arguments.context, presentationData: presentationData, text: text.value, placeholder: placeholder, maxLength: CreatePollTextInputItemTextLimit(value: 200, display: true), sectionId: self.section, style: .blocks, textUpdated: { text in
                 arguments.updateSolutionText(text)
             }, updatedFocus: { value in
                 arguments.solutionTextFocused(value)
@@ -488,23 +490,35 @@ private func createPollControllerEntries(presentationData: PresentationData, pee
 }
 
 public final class ComposedPoll {
+    public struct Text {
+        public let string: String
+        public let entities: [MessageTextEntity]
+        
+        public init(string: String, entities: [MessageTextEntity]) {
+            self.string = string
+            self.entities = entities
+        }
+    }
+    
     public let publicity: TelegramMediaPollPublicity
     public let kind: TelegramMediaPollKind
 
-    public let text: String
+    public let text: Text
     public let options: [TelegramMediaPollOption]
     public let correctAnswers: [Data]?
     public let results: TelegramMediaPollResults
     public let deadlineTimeout: Int32?
+    public let usedCustomEmojiFiles: [Int64: TelegramMediaFile]
 
     public init(
         publicity: TelegramMediaPollPublicity,
         kind: TelegramMediaPollKind,
-        text: String,
+        text: Text,
         options: [TelegramMediaPollOption],
         correctAnswers: [Data]?,
         results: TelegramMediaPollResults,
-        deadlineTimeout: Int32?
+        deadlineTimeout: Int32?,
+        usedCustomEmojiFiles: [Int64: TelegramMediaFile]
     ) {
         self.publicity = publicity
         self.kind = kind
@@ -513,6 +527,7 @@ public final class ComposedPoll {
         self.correctAnswers = correctAnswers
         self.results = results
         self.deadlineTimeout = deadlineTimeout
+        self.usedCustomEmojiFiles = usedCustomEmojiFiles
     }
 }
 
@@ -523,6 +538,17 @@ private final class CreatePollContext: AttachmentMediaPickerContext {
     
     var caption: Signal<NSAttributedString?, NoError> {
         return .single(nil)
+    }
+    
+    var captionIsAboveMedia: Signal<Bool, NoError> {
+        return .single(false)
+    }
+    
+    var hasCaption: Bool {
+        return false
+    }
+    
+    func setCaptionIsAboveMedia(_ captionIsAboveMedia: Bool) -> Void {
     }
     
     public var loadingProgress: Signal<CGFloat?, NoError> {
@@ -536,10 +562,10 @@ private final class CreatePollContext: AttachmentMediaPickerContext {
     func setCaption(_ caption: NSAttributedString) {
     }
     
-    func send(mode: AttachmentMediaPickerSendMode, attachmentMode: AttachmentMediaPickerAttachmentMode) {
+    func send(mode: AttachmentMediaPickerSendMode, attachmentMode: AttachmentMediaPickerAttachmentMode, parameters: ChatSendMessageActionSheetController.SendParameters?) {
     }
     
-    func schedule() {
+    func schedule(parameters: ChatSendMessageActionSheetController.SendParameters?) {
     }
     
     func mainButtonAction() {
@@ -550,7 +576,11 @@ private final class CreatePollContext: AttachmentMediaPickerContext {
 public class CreatePollControllerImpl: ItemListController, AttachmentContainable {
     public var requestAttachmentMenuExpansion: () -> Void = {}
     public var updateNavigationStack: (@escaping ([AttachmentContainable]) -> ([AttachmentContainable], AttachmentMediaPickerContext?)) -> Void = { _ in }
+    public var parentController: () -> ViewController? = {
+        return nil
+    }
     public var updateTabBarAlpha: (CGFloat, ContainedViewLayoutTransition) -> Void = { _, _ in }
+    public var updateTabBarVisibility: (Bool, ContainedViewLayoutTransition) -> Void = { _, _ in }
     public var cancelPanGesture: () -> Void = { }
     public var isContainerPanning: () -> Bool = { return false }
     public var isContainerExpanded: () -> Bool = { return false }
@@ -599,15 +629,16 @@ public class CreatePollControllerImpl: ItemListController, AttachmentContainable
 }
 
 public func createPollController(context: AccountContext, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)? = nil, peer: EnginePeer, isQuiz: Bool? = nil, completion: @escaping (ComposedPoll) -> Void) -> ViewController {
-    if "".isEmpty {
-        return ComposePollScreen(
-            context: context,
-            peer: peer,
-            isQuiz: isQuiz,
-            completion: completion
-        )
-    }
+    return ComposePollScreen(
+        context: context,
+        initialData: ComposePollScreen.initialData(context: context),
+        peer: peer,
+        isQuiz: isQuiz,
+        completion: completion
+    )
+}
     
+private func legacyCreatePollController(context: AccountContext, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)? = nil, peer: EnginePeer, isQuiz: Bool?, completion: @escaping (ComposedPoll) -> Void) -> ViewController {
     var initialState = CreatePollControllerState()
     if let isQuiz = isQuiz {
         initialState.isQuiz = isQuiz
@@ -635,7 +666,7 @@ public func createPollController(context: AccountContext, updatedPresentationDat
     let updateAddressNameDisposable = MetaDisposable()
     actionsDisposable.add(updateAddressNameDisposable)
     
-    let arguments = CreatePollControllerArguments(updatePollText: { value in
+    let arguments = CreatePollControllerArguments(context: context, updatePollText: { value in
         updateState { state in
             var state = state
             state.focusOptionId = nil
@@ -928,7 +959,7 @@ public func createPollController(context: AccountContext, updatedPresentationDat
                 let optionText = state.options[i].item.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !optionText.isEmpty {
                     let optionData = "\(i)".data(using: .utf8)!
-                    options.append(TelegramMediaPollOption(text: optionText, opaqueIdentifier: optionData))
+                    options.append(TelegramMediaPollOption(text: optionText, entities: [], opaqueIdentifier: optionData))
                     if state.isQuiz && state.options[i].item.isSelected {
                         correctAnswers = [optionData]
                     }
@@ -959,11 +990,12 @@ public func createPollController(context: AccountContext, updatedPresentationDat
             completion(ComposedPoll(
                 publicity: publicity,
                 kind: kind,
-                text: processPollText(state.text),
+                text: ComposedPoll.Text(string: processPollText(state.text), entities: []),
                 options: options,
                 correctAnswers: correctAnswers,
                 results: TelegramMediaPollResults(voters: nil, totalVoters: nil, recentVoters: [], solution: resolvedSolution),
-                deadlineTimeout: deadlineTimeout
+                deadlineTimeout: deadlineTimeout,
+                usedCustomEmojiFiles: [:]
             ))
         })
         

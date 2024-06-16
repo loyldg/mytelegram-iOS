@@ -59,6 +59,7 @@ private let validTimecodePreviousSet: CharacterSet = {
 
 public struct ApplicationSpecificEntityType {
     public static let Timecode: Int32 = 1
+    public static let Button: Int32 = 2
 }
 
 private enum CurrentEntityType {
@@ -170,7 +171,7 @@ public func generateChatInputTextEntities(_ text: NSAttributedString, maxAnimate
             } else if key == ChatTextInputAttributes.block, let value = value as? ChatTextInputTextQuoteAttribute {
                 switch value.kind {
                 case .quote:
-                    entities.append(MessageTextEntity(range: range.lowerBound ..< range.upperBound, type: .BlockQuote))
+                    entities.append(MessageTextEntity(range: range.lowerBound ..< range.upperBound, type: .BlockQuote(isCollapsed: value.isCollapsed)))
                 case let .code(language):
                     entities.append(MessageTextEntity(range: range.lowerBound ..< range.upperBound, type: .Pre(language: language)))
                 }

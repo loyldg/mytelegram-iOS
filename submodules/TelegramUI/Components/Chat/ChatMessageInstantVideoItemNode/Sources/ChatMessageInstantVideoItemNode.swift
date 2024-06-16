@@ -893,14 +893,24 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
                                     }
                                 }
                                 strongSelf.addSubnode(actionButtonsNode)
+                                
+                                if animation.isAnimated {
+                                    actionButtonsNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.25)
+                                }
                             } else {
                                 if case let .System(duration, _) = animation {
                                     actionButtonsNode.layer.animateFrame(from: previousFrame, to: actionButtonsFrame, duration: duration, timingFunction: kCAMediaTimingFunctionSpring)
                                 }
                             }
                         } else if let actionButtonsNode = strongSelf.actionButtonsNode {
-                            actionButtonsNode.removeFromSupernode()
                             strongSelf.actionButtonsNode = nil
+                            if animation.isAnimated {
+                                actionButtonsNode.layer.animateAlpha(from: actionButtonsNode.alpha, to: 0.0, duration: 0.25, removeOnCompletion: false, completion: { _ in
+                                    actionButtonsNode.removeFromSupernode()
+                                })
+                            } else {
+                                actionButtonsNode.removeFromSupernode()
+                            }
                         }
                     }
                     
@@ -986,7 +996,7 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
                                 if case let .broadcast(info) = channel.info, info.flags.contains(.hasDiscussionGroup) {
                                 } else if case .member = channel.participationStatus {
                                 } else {
-                                    item.controllerInteraction.displayMessageTooltip(item.message.id, item.presentationData.strings.Conversation_PrivateChannelTooltip, forwardInfoNode, nil)
+                                    item.controllerInteraction.displayMessageTooltip(item.message.id, item.presentationData.strings.Conversation_PrivateChannelTooltip, false, forwardInfoNode, nil)
                                     return
                                 }
                             }
@@ -994,7 +1004,7 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
                         } else if let peer = forwardInfo.source ?? forwardInfo.author {
                             item.controllerInteraction.openPeer(EnginePeer(peer), peer is TelegramUser ? .info(nil) : .chat(textInputState: nil, subject: nil, peekData: nil), nil, .default)
                         } else if let _ = forwardInfo.authorSignature {
-                            item.controllerInteraction.displayMessageTooltip(item.message.id, item.presentationData.strings.Conversation_ForwardAuthorHiddenTooltip, forwardInfoNode, nil)
+                            item.controllerInteraction.displayMessageTooltip(item.message.id, item.presentationData.strings.Conversation_ForwardAuthorHiddenTooltip, false, forwardInfoNode, nil)
                         }
                     }
                     
@@ -1253,8 +1263,8 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
         self.layer.removeAllAnimations()
     }
     
-    override public func animateInsertion(_ currentTimestamp: Double, duration: Double, short: Bool) {
-        super.animateInsertion(currentTimestamp, duration: duration, short: short)
+    override public func animateInsertion(_ currentTimestamp: Double, duration: Double, options: ListViewItemAnimationOptions) {
+        super.animateInsertion(currentTimestamp, duration: duration, options: options)
         
         self.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
     }

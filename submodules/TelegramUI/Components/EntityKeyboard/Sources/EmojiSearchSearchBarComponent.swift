@@ -104,7 +104,7 @@ final class EmojiSearchSearchBarComponent: Component {
     let useOpaqueTheme: Bool
     let textInputState: TextInputState
     let categories: EmojiSearchCategories?
-    let searchTermUpdated: ([String]?) -> Void
+    let searchTermUpdated: (EmojiSearchCategories.Group?) -> Void
     let activateTextInput: () -> Void
 
     init(
@@ -115,7 +115,7 @@ final class EmojiSearchSearchBarComponent: Component {
         useOpaqueTheme: Bool,
         textInputState: TextInputState,
         categories: EmojiSearchCategories?,
-        searchTermUpdated: @escaping ([String]?) -> Void,
+        searchTermUpdated: @escaping (EmojiSearchCategories.Group?) -> Void,
         activateTextInput: @escaping () -> Void
     ) {
         self.context = context
@@ -366,7 +366,7 @@ final class EmojiSearchSearchBarComponent: Component {
                             self.componentState?.updated(transition: .easeInOut(duration: 0.2))
                             
                             if let _ = self.selectedItem, let categories = component.categories, let group = categories.groups.first(where: { $0.id == itemId }) {
-                                component.searchTermUpdated(group.identifiers)
+                                component.searchTermUpdated(group)
                                 
                                 if let itemComponentView = itemView.view.view {
                                     var offset = self.scrollView.contentOffset.x
@@ -420,6 +420,24 @@ final class EmojiSearchSearchBarComponent: Component {
             }
         }
         
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard let component = self.component else {
+                return nil
+            }
+            let _ = component
+            
+            return super.hitTest(point, with: event)
+        }
+        
+        func leftTextPosition() -> CGFloat {
+            guard let itemLayout = self.itemLayout else {
+                return 0.0
+            }
+            
+            let visibleBounds = self.scrollView.bounds
+            return (itemLayout.itemStartX - itemLayout.textSpacing) + visibleBounds.minX
+        }
+        
         private func updateScrolling(transition: Transition, fromScrolling: Bool) {
             guard let component = self.component, let itemLayout = self.itemLayout else {
                 return
@@ -427,8 +445,12 @@ final class EmojiSearchSearchBarComponent: Component {
             
             let itemAlpha: CGFloat
             switch component.textInputState {
-            case .active:
-                itemAlpha = 0.0
+            case let .active(hasText):
+                if hasText {
+                    itemAlpha = 0.0
+                } else {
+                    itemAlpha = 1.0
+                }
             case .inactive:
                 itemAlpha = 1.0
             }
@@ -674,7 +696,7 @@ final class EmojiSearchSearchBarComponent: Component {
             if self.scrollView.bounds.size != availableSize {
                 transition.setFrame(view: self.scrollView, frame: CGRect(origin: CGPoint(), size: availableSize))
             }
-            if case .active = component.textInputState {
+            if case .active(true) = component.textInputState {
                 transition.setBoundsOrigin(view: self.scrollView, origin: CGPoint())
             }
             if self.scrollView.contentSize != itemLayout.contentSize {

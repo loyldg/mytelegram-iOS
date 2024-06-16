@@ -1175,7 +1175,7 @@ public final class PeerStoryListContext {
         public var hasCache: Bool
         public var allEntityFiles: [MediaId: TelegramMediaFile]
         
-        init(
+        public init(
             peerReference: PeerReference?,
             items: [EngineStoryItem],
             pinnedIds: Set<Int32>,
@@ -1517,12 +1517,6 @@ public func _internal_pollPeerStories(postbox: Postbox, network: Network, accoun
         guard let inputPeer = inputPeer else {
             return .complete()
         }
-        
-        #if DEBUG
-        if "".isEmpty {
-            return .complete()
-        }
-        #endif
         
         return network.request(Api.functions.stories.getPeerStories(peer: inputPeer))
         |> map(Optional.init)

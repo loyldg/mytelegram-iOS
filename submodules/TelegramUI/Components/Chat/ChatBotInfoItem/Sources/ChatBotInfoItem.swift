@@ -175,7 +175,7 @@ public final class ChatBotInfoItemNode: ListViewItemNode {
                     break
                 case .ignore:
                     return .fail
-                case .url, .peerMention, .textMention, .botCommand, .hashtag, .instantPage, .wallpaper, .theme, .call, .openMessage, .timecode, .bankCard, .tooltip, .openPollResults, .copy, .largeEmoji, .customEmoji:
+                case .url, .phone, .peerMention, .textMention, .botCommand, .hashtag, .instantPage, .wallpaper, .theme, .call, .openMessage, .timecode, .bankCard, .tooltip, .openPollResults, .copy, .largeEmoji, .customEmoji, .custom:
                     return .waitForSingleTap
                 }
             }
@@ -363,7 +363,7 @@ public final class ChatBotInfoItemNode: ListViewItemNode {
         self.layer.animateAlpha(from: 0.0, to: 1.0, duration: duration * 0.5)
     }
     
-    override public func animateInsertion(_ currentTimestamp: Double, duration: Double, short: Bool) {
+    override public func animateInsertion(_ currentTimestamp: Double, duration: Double, options: ListViewItemAnimationOptions) {
         self.layer.animateAlpha(from: 0.0, to: 1.0, duration: duration * 0.5)
     }
     

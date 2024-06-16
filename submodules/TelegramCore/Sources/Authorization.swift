@@ -129,11 +129,10 @@ enum SendFirebaseAuthorizationCodeError {
     case generic
 }
 
-private func sendFirebaseAuthorizationCode(accountManager: AccountManager<TelegramAccountManagerTypes>, account: UnauthorizedAccount, phoneNumber: String, apiId: Int32, apiHash: String, phoneCodeHash: String, timeout: Int32?, firebaseSecret: String, syncContacts: Bool) -> Signal<Bool, SendFirebaseAuthorizationCodeError> {
-    //auth.requestFirebaseSms#89464b50 flags:# phone_number:string phone_code_hash:string safety_net_token:flags.0?string ios_push_secret:flags.1?string = Bool;
+func sendFirebaseAuthorizationCode(network: Network, phoneNumber: String, apiId: Int32, apiHash: String, phoneCodeHash: String, timeout: Int32?, firebaseSecret: String) -> Signal<Bool, SendFirebaseAuthorizationCodeError> {
     var flags: Int32 = 0
     flags |= 1 << 1
-    return account.network.request(Api.functions.auth.requestFirebaseSms(flags: flags, phoneNumber: phoneNumber, phoneCodeHash: phoneCodeHash, safetyNetToken: nil, iosPushSecret: firebaseSecret))
+    return network.request(Api.functions.auth.requestFirebaseSms(flags: flags, phoneNumber: phoneNumber, phoneCodeHash: phoneCodeHash, safetyNetToken: nil, playIntegrityToken: nil, iosPushSecret: firebaseSecret))
     |> mapError { _ -> SendFirebaseAuthorizationCodeError in
         return .generic
     }
@@ -142,7 +141,7 @@ private func sendFirebaseAuthorizationCode(accountManager: AccountManager<Telegr
     }
 }
 
-public func sendAuthorizationCode(accountManager: AccountManager<TelegramAccountManagerTypes>, account: UnauthorizedAccount, phoneNumber: String, apiId: Int32, apiHash: String, pushNotificationConfiguration: AuthorizationCodePushNotificationConfiguration?, firebaseSecretStream: Signal<[String: String], NoError>, syncContacts: Bool, forcedPasswordSetupNotice: @escaping (Int32) -> (NoticeEntryKey, CodableEntry)?) -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> {
+public func sendAuthorizationCode(accountManager: AccountManager<TelegramAccountManagerTypes>, account: UnauthorizedAccount, phoneNumber: String, apiId: Int32, apiHash: String, pushNotificationConfiguration: AuthorizationCodePushNotificationConfiguration?, firebaseSecretStream: Signal<[String: String], NoError>, syncContacts: Bool, disableAuthTokens: Bool = false, forcedPasswordSetupNotice: @escaping (Int32) -> (NoticeEntryKey, CodableEntry)?) -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> {
     var cloudValue: [Data] = []
     if let list = NSUbiquitousKeyValueStore.default.object(forKey: "T_SLTokens") as? [String] {
         cloudValue = list.compactMap { string -> Data? in
@@ -152,9 +151,6 @@ public func sendAuthorizationCode(accountManager: AccountManager<TelegramAccount
             return Data(base64Encoded: stringData)
         }
     }
-    #if DEBUG
-    cloudValue.removeAll()
-    #endif
     return accountManager.transaction { transaction -> [Data] in
         return transaction.getStoredLoginTokens()
     }
@@ -162,15 +158,19 @@ public func sendAuthorizationCode(accountManager: AccountManager<TelegramAccount
     |> mapToSignal { localAuthTokens -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> in
         var authTokens = localAuthTokens
         
-        #if DEBUG
-        authTokens.removeAll()
-        #endif
-        
         for data in cloudValue {
             if !authTokens.contains(data) {
                 authTokens.insert(data, at: 0)
             }
         }
+        
+        if disableAuthTokens {
+            authTokens.removeAll()
+        }
+        
+#if DEBUG
+        authTokens.removeAll()
+#endif
         
         var flags: Int32 = 0
         flags |= 1 << 5 //allowMissedCall
@@ -268,12 +268,13 @@ public func sendAuthorizationCode(accountManager: AccountManager<TelegramAccount
                 case let .sentCode(sentCode):
                     switch sentCode {
                     case let .sentCode(_, type, phoneCodeHash, nextType, codeTimeout):
+                        let parsedType = SentAuthorizationCodeType(apiType: type)
                         var parsedNextType: AuthorizationCodeNextType?
                         if let nextType = nextType {
                             parsedNextType = AuthorizationCodeNextType(apiType: nextType)
                         }
                         
-                        if case let .sentCodeTypeFirebaseSms(_, _, receipt, pushTimeout, _) = type {
+                        if case let .sentCodeTypeFirebaseSms(_, _, _, receipt, pushTimeout, _) = type {
                             return firebaseSecretStream
                             |> map { mapping -> String? in
                                 guard let receipt = receipt else {
@@ -293,10 +294,10 @@ public func sendAuthorizationCode(accountManager: AccountManager<TelegramAccount
                             |> castError(AuthorizationCodeRequestError.self)
                             |> mapToSignal { firebaseSecret -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> in
                                 guard let firebaseSecret = firebaseSecret else {
-                                    return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: phoneNumber, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream)
+                                    return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: phoneNumber, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream, reason: .firebasePushTimeout)
                                 }
                                 
-                                return sendFirebaseAuthorizationCode(accountManager: accountManager, account: account, phoneNumber: phoneNumber, apiId: apiId, apiHash: apiHash, phoneCodeHash: phoneCodeHash, timeout: codeTimeout, firebaseSecret: firebaseSecret, syncContacts: syncContacts)
+                                return sendFirebaseAuthorizationCode(network: account.network, phoneNumber: phoneNumber, apiId: apiId, apiHash: apiHash, phoneCodeHash: phoneCodeHash, timeout: codeTimeout, firebaseSecret: firebaseSecret)
                                 |> `catch` { _ -> Signal<Bool, SendFirebaseAuthorizationCodeError> in
                                     return .single(false)
                                 }
@@ -306,19 +307,55 @@ public func sendAuthorizationCode(accountManager: AccountManager<TelegramAccount
                                 |> mapToSignal { success -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> in
                                     if success {
                                         return account.postbox.transaction { transaction -> SendAuthorizationCodeResult in
-                                            transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: phoneNumber, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts)))
+                                            var previousCodeEntry: UnauthorizedAccountStateContents?
+                                            if let state = transaction.getState() as? UnauthorizedAccountState, case let .confirmationCodeEntry(_, type, _, _, _, _, previousCodeEntryValue, _) = state.contents {
+                                                if let previousCodeEntryValue {
+                                                    previousCodeEntry = previousCodeEntryValue
+                                                } else {
+                                                    switch type {
+                                                    case .word, .phrase:
+                                                        previousCodeEntry = state.contents
+                                                    default:
+                                                        switch parsedType {
+                                                        case .word, .phrase:
+                                                            previousCodeEntry = state.contents
+                                                        default:
+                                                            break
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: phoneNumber, type: parsedType, hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts, previousCodeEntry: previousCodeEntry, usePrevious: false)))
                                             
                                             return .sentCode(account)
                                         }
                                         |> castError(AuthorizationCodeRequestError.self)
                                     } else {
-                                        return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: phoneNumber, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream)
+                                        return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: phoneNumber, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream, reason: .firebaseSendCodeError)
                                     }
                                 }
                             }
                         }
-                        
-                        transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: phoneNumber, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts)))
+                                                
+                        var previousCodeEntry: UnauthorizedAccountStateContents?
+                        if let state = transaction.getState() as? UnauthorizedAccountState, case let .confirmationCodeEntry(_, type, _, _, _, _, previousCodeEntryValue, _) = state.contents {
+                            if let previousCodeEntryValue {
+                                previousCodeEntry = previousCodeEntryValue
+                            } else {
+                                switch type {
+                                case .word, .phrase:
+                                    previousCodeEntry = state.contents
+                                default:
+                                    switch parsedType {
+                                    case .word, .phrase:
+                                        previousCodeEntry = state.contents
+                                    default:
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                        transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: phoneNumber, type: parsedType, hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts, previousCodeEntry: previousCodeEntry, usePrevious: false)))
                     case let .sentCodeSuccess(authorization):
                         switch authorization {
                         case let .authorization(_, otherwiseReloginDays, _, futureAuthToken, user):
@@ -356,8 +393,20 @@ public func sendAuthorizationCode(accountManager: AccountManager<TelegramAccount
     }
 }
 
-private func internalResendAuthorizationCode(accountManager: AccountManager<TelegramAccountManagerTypes>, account: UnauthorizedAccount, number: String, apiId: Int32, apiHash: String, hash: String, syncContacts: Bool, firebaseSecretStream: Signal<[String: String], NoError>) -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> {
-    return account.network.request(Api.functions.auth.resendCode(phoneNumber: number, phoneCodeHash: hash), automaticFloodWait: false)
+enum ResendAuthorizationCodeReason: String {
+    case firebasePushTimeout = "FIREBASE_PUSH_TIMEOUT"
+    case firebaseSendCodeError = "FIREBASE_SEND_CODE_ERROR"
+}
+
+private func internalResendAuthorizationCode(accountManager: AccountManager<TelegramAccountManagerTypes>, account: UnauthorizedAccount, number: String, apiId: Int32, apiHash: String, hash: String, syncContacts: Bool, firebaseSecretStream: Signal<[String: String], NoError>, reason: ResendAuthorizationCodeReason?) -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> {
+    var flags: Int32 = 0
+    var mappedReason: String?
+    if let reason {
+        flags |= 1 << 0
+        mappedReason = reason.rawValue
+    }
+    
+    return account.network.request(Api.functions.auth.resendCode(flags: flags, phoneNumber: number, phoneCodeHash: hash, reason: mappedReason), automaticFloodWait: false)
     |> mapError { error -> AuthorizationCodeRequestError in
         if error.errorDescription.hasPrefix("FLOOD_WAIT") {
             return .limitExceeded
@@ -377,12 +426,13 @@ private func internalResendAuthorizationCode(accountManager: AccountManager<Tele
         return account.postbox.transaction { transaction -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> in
             switch sentCode {
             case let .sentCode(_, type, phoneCodeHash, nextType, codeTimeout):
+                let parsedType = SentAuthorizationCodeType(apiType: type)
                 var parsedNextType: AuthorizationCodeNextType?
                 if let nextType = nextType {
                     parsedNextType = AuthorizationCodeNextType(apiType: nextType)
                 }
                 
-                if case let .sentCodeTypeFirebaseSms(_, _, receipt, pushTimeout, _) = type {
+                if case let .sentCodeTypeFirebaseSms(_, _, _, receipt, pushTimeout, _) = type {
                     return firebaseSecretStream
                     |> map { mapping -> String? in
                         guard let receipt = receipt else {
@@ -402,10 +452,10 @@ private func internalResendAuthorizationCode(accountManager: AccountManager<Tele
                     |> castError(AuthorizationCodeRequestError.self)
                     |> mapToSignal { firebaseSecret -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> in
                         guard let firebaseSecret = firebaseSecret else {
-                            return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: number, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream)
+                            return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: number, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream, reason: .firebasePushTimeout)
                         }
                         
-                        return sendFirebaseAuthorizationCode(accountManager: accountManager, account: account, phoneNumber: number, apiId: apiId, apiHash: apiHash, phoneCodeHash: phoneCodeHash, timeout: codeTimeout, firebaseSecret: firebaseSecret, syncContacts: syncContacts)
+                        return sendFirebaseAuthorizationCode(network: account.network, phoneNumber: number, apiId: apiId, apiHash: apiHash, phoneCodeHash: phoneCodeHash, timeout: codeTimeout, firebaseSecret: firebaseSecret)
                         |> `catch` { _ -> Signal<Bool, SendFirebaseAuthorizationCodeError> in
                             return .single(false)
                         }
@@ -415,19 +465,55 @@ private func internalResendAuthorizationCode(accountManager: AccountManager<Tele
                         |> mapToSignal { success -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> in
                             if success {
                                 return account.postbox.transaction { transaction -> SendAuthorizationCodeResult in
-                                    transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: number, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts)))
+                                    var previousCodeEntry: UnauthorizedAccountStateContents?
+                                    if let state = transaction.getState() as? UnauthorizedAccountState, case let .confirmationCodeEntry(_, type, _, _, _, _, previousCodeEntryValue, _) = state.contents {
+                                        if let previousCodeEntryValue {
+                                            previousCodeEntry = previousCodeEntryValue
+                                        } else {
+                                            switch type {
+                                            case .word, .phrase:
+                                                previousCodeEntry = state.contents
+                                            default:
+                                                switch parsedType {
+                                                case .word, .phrase:
+                                                    previousCodeEntry = state.contents
+                                                default:
+                                                    break
+                                                }
+                                            }
+                                        }
+                                    }
+                                    transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: number, type: parsedType, hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts, previousCodeEntry: previousCodeEntry, usePrevious: false)))
                                     
                                     return .sentCode(account)
                                 }
                                 |> castError(AuthorizationCodeRequestError.self)
                             } else {
-                                return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: number, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream)
+                                return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: number, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream, reason: .firebaseSendCodeError)
                             }
                         }
                     }
                 }
                 
-                transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: number, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts)))
+                var previousCodeEntry: UnauthorizedAccountStateContents?
+                if let state = transaction.getState() as? UnauthorizedAccountState, case let .confirmationCodeEntry(_, type, _, _, _, _, previousCodeEntryValue, _) = state.contents {
+                    if let previousCodeEntryValue {
+                        previousCodeEntry = previousCodeEntryValue
+                    } else {
+                        switch type {
+                        case .word, .phrase:
+                            previousCodeEntry = state.contents
+                        default:
+                            switch parsedType {
+                            case .word, .phrase:
+                                previousCodeEntry = state.contents
+                            default:
+                                break
+                            }
+                        }
+                    }
+                }
+                transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: number, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts, previousCodeEntry: previousCodeEntry, usePrevious: false)))
                 
                 return .single(.sentCode(account))
             case .sentCodeSuccess:
@@ -443,9 +529,9 @@ public func resendAuthorizationCode(accountManager: AccountManager<TelegramAccou
     return account.postbox.transaction { transaction -> Signal<Void, AuthorizationCodeRequestError> in
         if let state = transaction.getState() as? UnauthorizedAccountState {
             switch state.contents {
-                case let .confirmationCodeEntry(number, _, hash, _, nextType, syncContacts):
+                case let .confirmationCodeEntry(number, type, hash, _, nextType, syncContacts, previousCodeEntryValue, _):
                     if nextType != nil {
-                        return account.network.request(Api.functions.auth.resendCode(phoneNumber: number, phoneCodeHash: hash), automaticFloodWait: false)
+                        return account.network.request(Api.functions.auth.resendCode(flags: 0, phoneNumber: number, phoneCodeHash: hash, reason: nil), automaticFloodWait: false)
                         |> mapError { error -> AuthorizationCodeRequestError in
                             if error.errorDescription.hasPrefix("FLOOD_WAIT") {
                                 return .limitExceeded
@@ -464,13 +550,31 @@ public func resendAuthorizationCode(accountManager: AccountManager<TelegramAccou
                         |> mapToSignal { sentCode -> Signal<Void, AuthorizationCodeRequestError> in
                             return account.postbox.transaction { transaction -> Signal<Void, AuthorizationCodeRequestError> in
                                 switch sentCode {
-                                case let .sentCode(_, type, phoneCodeHash, nextType, codeTimeout):
+                                case let .sentCode(_, newType, phoneCodeHash, nextType, codeTimeout):
+                                    let parsedType = SentAuthorizationCodeType(apiType: newType)
+                                    var previousCodeEntry: UnauthorizedAccountStateContents?
+                                    if let previousCodeEntryValue {
+                                        previousCodeEntry = previousCodeEntryValue
+                                    } else {
+                                        switch type {
+                                        case .word, .phrase:
+                                            previousCodeEntry = state.contents
+                                        default:
+                                            switch parsedType {
+                                            case .word, .phrase:
+                                                previousCodeEntry = state.contents
+                                            default:
+                                                break
+                                            }
+                                        }
+                                    }
+                                    
                                     var parsedNextType: AuthorizationCodeNextType?
                                     if let nextType = nextType {
                                         parsedNextType = AuthorizationCodeNextType(apiType: nextType)
                                     }
                                     
-                                    if case let .sentCodeTypeFirebaseSms(_, _, receipt, pushTimeout, _) = type {
+                                    if case let .sentCodeTypeFirebaseSms(_, _, _, receipt, pushTimeout, _) = newType {
                                         return firebaseSecretStream
                                         |> map { mapping -> String? in
                                             guard let receipt = receipt else {
@@ -490,10 +594,10 @@ public func resendAuthorizationCode(accountManager: AccountManager<TelegramAccou
                                         |> castError(AuthorizationCodeRequestError.self)
                                         |> mapToSignal { firebaseSecret -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> in
                                             guard let firebaseSecret = firebaseSecret else {
-                                                return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: number, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream)
+                                                return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: number, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream, reason: .firebasePushTimeout)
                                             }
                                             
-                                            return sendFirebaseAuthorizationCode(accountManager: accountManager, account: account, phoneNumber: number, apiId: apiId, apiHash: apiHash, phoneCodeHash: phoneCodeHash, timeout: codeTimeout, firebaseSecret: firebaseSecret, syncContacts: syncContacts)
+                                            return sendFirebaseAuthorizationCode(network: account.network, phoneNumber: number, apiId: apiId, apiHash: apiHash, phoneCodeHash: phoneCodeHash, timeout: codeTimeout, firebaseSecret: firebaseSecret)
                                             |> `catch` { _ -> Signal<Bool, SendFirebaseAuthorizationCodeError> in
                                                 return .single(false)
                                             }
@@ -503,20 +607,20 @@ public func resendAuthorizationCode(accountManager: AccountManager<TelegramAccou
                                             |> mapToSignal { success -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> in
                                                 if success {
                                                     return account.postbox.transaction { transaction -> SendAuthorizationCodeResult in
-                                                        transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: number, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts)))
+                                                        transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: number, type: parsedType, hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts, previousCodeEntry: previousCodeEntry, usePrevious: false)))
                                                         
                                                         return .sentCode(account)
                                                     }
                                                     |> castError(AuthorizationCodeRequestError.self)
                                                 } else {
-                                                    return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: number, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream)
+                                                    return internalResendAuthorizationCode(accountManager: accountManager, account: account, number: number, apiId: apiId, apiHash: apiHash, hash: phoneCodeHash, syncContacts: syncContacts, firebaseSecretStream: firebaseSecretStream, reason: .firebaseSendCodeError)
                                                 }
                                             }
                                         }
                                         |> map { _ -> Void in return Void() }
                                     }
                                     
-                                    transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: number, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts)))
+                                    transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: number, type: parsedType, hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts, previousCodeEntry: previousCodeEntry, usePrevious: false)))
                                 case .sentCodeSuccess:
                                     break
                                 }
@@ -675,7 +779,7 @@ public func sendLoginEmailCode(account: UnauthorizedAccount, email: String) -> S
     return account.postbox.transaction { transaction -> Signal<Never, AuthorizationSendEmailCodeError> in
         if let state = transaction.getState() as? UnauthorizedAccountState {
             switch state.contents {
-                case let .confirmationCodeEntry(phoneNumber, _, phoneCodeHash, _, _, syncContacts):
+                case let .confirmationCodeEntry(phoneNumber, _, phoneCodeHash, _, _, syncContacts, _, _):
                     return account.network.request(Api.functions.account.sendVerifyEmailCode(purpose: .emailVerifyPurposeLoginSetup(phoneNumber: phoneNumber, phoneCodeHash: phoneCodeHash), email: email), automaticFloodWait: false)
                     |> `catch` { error -> Signal<Api.account.SentEmailCode, AuthorizationSendEmailCodeError> in
                         let errorDescription = error.errorDescription ?? ""
@@ -694,8 +798,8 @@ public func sendLoginEmailCode(account: UnauthorizedAccount, email: String) -> S
                     |> mapToSignal { result -> Signal<Never, AuthorizationSendEmailCodeError> in
                         return account.postbox.transaction { transaction -> Signal<Void, NoError> in
                             switch result {
-                                case let .sentEmailCode(emailPattern, length):
-                                    transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: phoneNumber, type: .email(emailPattern: emailPattern, length: length, resetAvailablePeriod: nil, resetPendingDate: nil, appleSignInAllowed: false, setup: true), hash: phoneCodeHash, timeout: nil, nextType: nil, syncContacts: syncContacts)))
+                            case let .sentEmailCode(emailPattern, length):
+                                transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: phoneNumber, type: .email(emailPattern: emailPattern, length: length, resetAvailablePeriod: nil, resetPendingDate: nil, appleSignInAllowed: false, setup: true), hash: phoneCodeHash, timeout: nil, nextType: nil, syncContacts: syncContacts, previousCodeEntry: nil, usePrevious: false)))
                             }
                             return .complete()
                         }
@@ -754,7 +858,7 @@ public func verifyLoginEmailSetup(account: UnauthorizedAccount, code: Authorizat
     return account.postbox.transaction { transaction -> Signal<Never, AuthorizationEmailVerificationError> in
         if let state = transaction.getState() as? UnauthorizedAccountState {
             switch state.contents {
-                case let .confirmationCodeEntry(phoneNumber, _, phoneCodeHash, _, _, syncContacts):
+                case let .confirmationCodeEntry(phoneNumber, _, phoneCodeHash, _, _, syncContacts, _, _):
                     let verification: Api.EmailVerification
                     switch code {
                         case let .emailCode(code):
@@ -793,7 +897,7 @@ public func verifyLoginEmailSetup(account: UnauthorizedAccount, code: Authorizat
                                             parsedNextType = AuthorizationCodeNextType(apiType: nextType)
                                         }
                                         
-                                        transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: phoneNumber, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: timeout, nextType: parsedNextType, syncContacts: syncContacts)))
+                                        transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: phoneNumber, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: timeout, nextType: parsedNextType, syncContacts: syncContacts, previousCodeEntry: nil, usePrevious: false)))
                                     case .sentCodeSuccess:
                                         break
                                     }
@@ -831,7 +935,7 @@ public func resetLoginEmail(account: UnauthorizedAccount, phoneNumber: String, p
     return account.postbox.transaction { transaction -> Signal<Never, AuthorizationEmailResetError> in
         if let state = transaction.getState() as? UnauthorizedAccountState {
             switch state.contents {
-                case let .confirmationCodeEntry(phoneNumber, _, phoneCodeHash, _, _, syncContacts):
+                case let .confirmationCodeEntry(phoneNumber, _, phoneCodeHash, _, _, syncContacts, _, _):
                     return account.network.request(Api.functions.auth.resetLoginEmail(phoneNumber: phoneNumber, phoneCodeHash: phoneCodeHash), automaticFloodWait: false)
                     |> `catch` { error -> Signal<Api.auth.SentCode, AuthorizationEmailResetError> in
                         let errorDescription = error.errorDescription ?? ""
@@ -854,7 +958,7 @@ public func resetLoginEmail(account: UnauthorizedAccount, phoneNumber: String, p
                                     parsedNextType = AuthorizationCodeNextType(apiType: nextType)
                                 }
                                 
-                                transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: phoneNumber, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts)))
+                                transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .confirmationCodeEntry(number: phoneNumber, type: SentAuthorizationCodeType(apiType: type), hash: phoneCodeHash, timeout: codeTimeout, nextType: parsedNextType, syncContacts: syncContacts, previousCodeEntry: nil, usePrevious: false)))
                                 
                                 return .complete()
                             case .sentCodeSuccess:
@@ -883,7 +987,7 @@ public func authorizeWithCode(accountManager: AccountManager<TelegramAccountMana
     return account.postbox.transaction { transaction -> Signal<AuthorizeWithCodeResult, AuthorizationCodeVerificationError> in
         if let state = transaction.getState() as? UnauthorizedAccountState {
             switch state.contents {
-                case let .confirmationCodeEntry(number, _, hash, _, _, syncContacts):
+                case let .confirmationCodeEntry(number, _, hash, _, _, syncContacts, _, _):
                     var flags: Int32 = 0
                     var phoneCode: String?
                     var emailVerification: Api.EmailVerification?
@@ -1324,6 +1428,17 @@ public func resetAuthorizationState(account: UnauthorizedAccount, to value: Auth
             transaction.setState(UnauthorizedAccountState(isTestingEnvironment: state.isTestingEnvironment, masterDatacenterId: state.masterDatacenterId, contents: .empty))
         }
     }
+}
+
+public func togglePreviousCodeEntry(account: UnauthorizedAccount) -> Signal<Never, NoError> {
+    return account.postbox.transaction { transaction -> Void in
+        if let state = transaction.getState() as? UnauthorizedAccountState {
+            if case let .confirmationCodeEntry(number, type, hash, timeout, nextType, syncContacts, previousCodeEntry, usePrevious) = state.contents, let previousCodeEntry {
+                transaction.setState(UnauthorizedAccountState(isTestingEnvironment: state.isTestingEnvironment, masterDatacenterId: state.masterDatacenterId, contents: .confirmationCodeEntry(number: number, type: type, hash: hash, timeout: timeout, nextType: nextType, syncContacts: syncContacts, previousCodeEntry: previousCodeEntry, usePrevious: !usePrevious)))
+            }
+        }
+    }
+    |> ignoreValues
 }
 
 public enum ReportMissingCodeError {

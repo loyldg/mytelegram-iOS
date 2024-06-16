@@ -724,6 +724,7 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
                                 reactionPeers: dateReactionsAndPeers.peers,
                                 displayAllReactionPeers: message.id.peerId.namespace == Namespaces.Peer.CloudUser,
                                 areReactionsTags: message.areReactionsTags(accountPeerId: context.account.peerId),
+                                messageEffect: message.messageEffect(availableMessageEffects: associatedData.availableMessageEffects),
                                 replyCount: dateReplies,
                                 isPinned: message.tags.contains(.pinned) && !associatedData.isInPinnedListMode && !isReplyThread,
                                 hasAutoremove: message.isSelfExpiring,
@@ -982,8 +983,9 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
                                         self.inlineStickerLayers = [stickerLayer]
                                     }
                                     stickerLayer.isVisibleForAnimations = self.visibility != .none
+                                    stickerLayer.dynamicColor = file.isCustomTemplateEmoji ? mainColor : nil
                                     stickerLayer.frame = inlineMediaFrame
-                                } else if contentAnimatedFilesValue.count == 4 {
+                                } else if contentAnimatedFilesValue.count == 4, let file = contentAnimatedFilesValue.first {
                                     var stickerLayers: [InlineStickerItemLayer] = []
                                     if self.inlineStickerLayers.count == contentAnimatedFilesValue.count {
                                         stickerLayers = self.inlineStickerLayers
@@ -995,14 +997,16 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
                                         }
                                         self.inlineStickerLayers = stickerLayers
                                     }
+                                                                        
                                     var frames: [CGRect] = []
                                     let smallSize = CGSize(width: inlineMediaFrame.width / 2.0, height: inlineMediaFrame.width / 2.0)
-                                    frames.append(CGRect(origin: inlineMediaFrame.origin, size: smallSize))
-                                    frames.append(CGRect(origin: inlineMediaFrame.origin.offsetBy(dx: smallSize.width, dy: 0.0), size: smallSize))
-                                    frames.append(CGRect(origin: inlineMediaFrame.origin.offsetBy(dx: 0.0, dy: smallSize.height), size: smallSize))
-                                    frames.append(CGRect(origin: inlineMediaFrame.origin.offsetBy(dx: smallSize.width, dy: smallSize.height), size: smallSize))
+                                    frames.append(CGRect(origin: inlineMediaFrame.origin, size: smallSize).insetBy(dx: 2.0, dy: 2.0))
+                                    frames.append(CGRect(origin: inlineMediaFrame.origin.offsetBy(dx: smallSize.width, dy: 0.0), size: smallSize).insetBy(dx: 2.0, dy: 2.0))
+                                    frames.append(CGRect(origin: inlineMediaFrame.origin.offsetBy(dx: 0.0, dy: smallSize.height), size: smallSize).insetBy(dx: 2.0, dy: 2.0))
+                                    frames.append(CGRect(origin: inlineMediaFrame.origin.offsetBy(dx: smallSize.width, dy: smallSize.height), size: smallSize).insetBy(dx: 2.0, dy: 2.0))
                                     for i in 0 ..< stickerLayers.count {
                                         stickerLayers[i].frame = frames[i]
+                                        stickerLayers[i].dynamicColor = file.isCustomTemplateEmoji ? mainColor : nil
                                     }
                                 }
                             }
@@ -1304,6 +1308,12 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
                                         return
                                     }
                                     controllerInteraction.activateMessagePinch(sourceNode)
+                                }
+                                contentMedia.playMessageEffect = { [weak controllerInteraction] message in
+                                    guard let controllerInteraction else {
+                                        return
+                                    }
+                                    controllerInteraction.playMessageEffect(message)
                                 }
                                 contentMedia.activateLocalContent = { [weak self] mode in
                                     guard let self else {
@@ -1703,6 +1713,24 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
             return result
         }
         if let result = self.contentInstantVideo?.dateAndStatusNode.reactionView(value: value) {
+            return result
+        }
+        return nil
+    }
+    
+    public func messageEffectTargetView() -> UIView? {
+        if let statusNode = self.statusNode, !statusNode.isHidden {
+            if let result = statusNode.messageEffectTargetView() {
+                return result
+            }
+        }
+        if let result = self.contentFile?.dateAndStatusNode.messageEffectTargetView() {
+            return result
+        }
+        if let result = self.contentMedia?.dateAndStatusNode.messageEffectTargetView() {
+            return result
+        }
+        if let result = self.contentInstantVideo?.dateAndStatusNode.messageEffectTargetView() {
             return result
         }
         return nil

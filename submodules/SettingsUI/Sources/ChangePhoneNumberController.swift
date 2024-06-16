@@ -36,7 +36,13 @@ public func ChangePhoneNumberController(context: AccountContext) -> ViewControll
             authorizationPushConfiguration
             |> castError(RequestChangeAccountPhoneNumberVerificationError.self)
             |> mapToSignal { authorizationPushConfiguration in
-                return context.engine.accountData.requestChangeAccountPhoneNumberVerification(phoneNumber: phoneNumber, pushNotificationConfiguration: authorizationPushConfiguration, firebaseSecretStream: context.sharedContext.firebaseSecretStream)
+                return context.engine.accountData.requestChangeAccountPhoneNumberVerification(
+                    apiId: context.sharedContext.networkArguments.apiId,
+                    apiHash: context.sharedContext.networkArguments.apiHash,
+                    phoneNumber: phoneNumber,
+                    pushNotificationConfiguration: authorizationPushConfiguration,
+                    firebaseSecretStream: context.sharedContext.firebaseSecretStream
+                )
             }
         |> deliverOnMainQueue).start(next: { [weak controller] next in
             controller?.inProgress = false
@@ -108,7 +114,7 @@ public func ChangePhoneNumberController(context: AccountContext) -> ViewControll
             codeController.openFragment = { url in
                 context.sharedContext.applicationBindings.openUrl(url)
             }
-            codeController.updateData(number: formatPhoneNumber(context: context, number: phoneNumber), email: nil, codeType: next.type, nextType: nil, timeout: next.timeout, termsOfService: nil)
+            codeController.updateData(number: formatPhoneNumber(context: context, number: phoneNumber), email: nil, codeType: next.type, nextType: nil, timeout: next.timeout, termsOfService: nil, previousCodeType: nil, isPrevious: false)
             dismissImpl = { [weak codeController] in
                 codeController?.dismiss()
             }
