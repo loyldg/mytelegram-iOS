@@ -31,7 +31,9 @@ swift_library(
         "//submodules/TelegramUI/Components/ButtonComponent",
         "//submodules/TelegramUI/Components/ListSectionComponent",
         "//submodules/TelegramUI/Components/ListActionItemComponent",
-	"//submodules/TelegramUI/Components/Stars/StarsImageComponent",
+        "//submodules/TelegramUI/Components/Stars/StarsImageComponent",
+        "//submodules/TelegramUI/Components/PremiumPeerShortcutComponent",
+        "//submodules/ConfettiEffect",
     ],
     visibility = [
         "//visibility:public",

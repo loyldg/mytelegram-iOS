@@ -730,6 +730,7 @@ public class TranslateScreen: ViewController {
                 inputHeight: layout.inputHeight ?? 0.0,
                 metrics: layout.metrics,
                 deviceMetrics: layout.deviceMetrics,
+                orientation: layout.metrics.orientation,
                 isVisible: self.currentIsVisible,
                 theme: self.theme ?? self.presentationData.theme,
                 strings: self.presentationData.strings,
@@ -1021,11 +1022,7 @@ public class TranslateScreen: ViewController {
             }
         }
         
-        if toLanguage == "nb" {
-            toLanguage = "no"
-        } else if toLanguage == "pt-br" {
-            toLanguage = "pt"
-        }
+        toLanguage = normalizeTranslationLanguage(toLanguage)
         
         var copyTranslationImpl: ((String) -> Void)?
         var changeLanguageImpl: ((String, String, @escaping (String, String) -> Void) -> Void)?

@@ -180,11 +180,17 @@ extension ChatControllerImpl {
             
         }
         
+        self.chatDisplayNode.historyNode.hasAtLeast3MessagesUpdated = { [weak self] hasAtLeast3Messages in
+            if let strongSelf = self {
+                strongSelf.updateChatPresentationInterfaceState(interactive: false, { $0.updatedHasAtLeast3Messages(hasAtLeast3Messages) })
+            }
+        }
         self.chatDisplayNode.historyNode.hasPlentyOfMessagesUpdated = { [weak self] hasPlentyOfMessages in
             if let strongSelf = self {
                 strongSelf.updateChatPresentationInterfaceState(interactive: false, { $0.updatedHasPlentyOfMessages(hasPlentyOfMessages) })
             }
         }
+        
         if case .peer(self.context.account.peerId) = self.chatLocation {
             var didDisplayTooltip = false
             if "".isEmpty {
@@ -290,6 +296,24 @@ extension ChatControllerImpl {
                                 hasAnonymousPeer = true
                                 break
                             }
+                        }
+                        if !hasAnonymousPeer {
+                            allPeers?.insert(SendAsPeer(peer: channel, subscribers: 0, isPremiumRequired: false), at: 0)
+                        }
+                    } else if let channel = peerViewMainPeer(peerView) as? TelegramChannel, case let .broadcast(info) = channel.info, (info.flags.contains(.messagesShouldHaveSignatures) || info.flags.contains(.messagesShouldHaveProfiles)) {
+                        allPeers = peers
+                        
+                        var hasAnonymousPeer = false
+                        var hasSelfPeer = false
+                        for peer in peers {
+                            if peer.peer.id == channel.id {
+                                hasAnonymousPeer = true
+                            } else if peer.peer.id == strongSelf.context.account.peerId {
+                                hasSelfPeer = true
+                            }
+                        }
+                        if !hasSelfPeer {
+                            allPeers?.insert(currentAccountPeer, at: 0)
                         }
                         if !hasAnonymousPeer {
                             allPeers?.insert(SendAsPeer(peer: channel, subscribers: 0, isPremiumRequired: false), at: 0)
@@ -1023,7 +1047,7 @@ extension ChatControllerImpl {
         
         self.chatDisplayNode.historyNode.scrolledToIndex = { [weak self] toSubject, initial in
             if let strongSelf = self, case let .message(index) = toSubject.index {
-                if case let .message(messageSubject, _, _) = strongSelf.subject, initial, case let .id(messageId) = messageSubject, messageId != index.id {
+                if case let .message(messageSubject, _, _, _) = strongSelf.subject, initial, case let .id(messageId) = messageSubject, messageId != index.id {
                     if messageId.peerId == index.id.peerId {
                         strongSelf.present(UndoOverlayController(presentationData: strongSelf.presentationData, content: .info(title: nil, text: strongSelf.presentationData.strings.Conversation_MessageDoesntExist, timeout: nil, customUndoText: nil), elevatedLayout: false, action: { _ in return true }), in: .current)
                     }
@@ -1036,6 +1060,12 @@ extension ChatControllerImpl {
                     }
                     
                     if let message = strongSelf.chatDisplayNode.historyNode.messageInCurrentHistoryView(mappedId) {
+                        if toSubject.setupReply {
+                            Queue.mainQueue().after(0.1) {
+                                strongSelf.interfaceInteraction?.setupReplyMessage(mappedId, { _, f in f() })
+                            }
+                        }
+                        
                         let highlightedState = ChatInterfaceHighlightedState(messageStableId: message.stableId, quote: toSubject.quote.flatMap { quote in ChatInterfaceHighlightedState.Quote(string: quote.string, offset: quote.offset) })
                         controllerInteraction.highlightedState = highlightedState
                         strongSelf.updateItemNodesHighlightedStates(animated: initial)
@@ -1066,7 +1096,7 @@ extension ChatControllerImpl {
                                     let _ = strongSelf.controllerInteraction?.openMessage(message, OpenMessageParams(mode: .timecode(timecode)))
                                 }
                             }
-                        } else if case let .message(_, _, maybeTimecode) = strongSelf.subject, let timecode = maybeTimecode, initial {
+                        } else if case let .message(_, _, maybeTimecode, _) = strongSelf.subject, let timecode = maybeTimecode, initial {
                             Queue.mainQueue().after(0.2) {
                                 let _ = strongSelf.controllerInteraction?.openMessage(message, OpenMessageParams(mode: .timecode(timecode)))
                             }
@@ -1096,9 +1126,16 @@ extension ChatControllerImpl {
         self.chatDisplayNode.setupSendActionOnViewUpdate = { [weak self] f, messageCorrelationId in
             //print("setup layoutActionOnViewTransition")
 
-            self?.chatDisplayNode.historyNode.layoutActionOnViewTransition = ({ [weak self] transition in
+            guard let self else {
+                return
+            }
+            self.layoutActionOnViewTransitionAction = f
+            
+            self.chatDisplayNode.historyNode.layoutActionOnViewTransition = ({ [weak self] transition in
                 f()
                 if let strongSelf = self, let validLayout = strongSelf.validLayout {
+                    strongSelf.layoutActionOnViewTransitionAction = nil
+                    
                     var mappedTransition: (ChatHistoryListViewTransition, ListViewUpdateSizeAndInsets?)?
                     
                     let isScheduledMessages: Bool
@@ -1238,35 +1275,75 @@ extension ChatControllerImpl {
                     }
                 }
                 
-                let signal: Signal<[MessageId?], NoError>
-                if forwardSourcePeerIds.count > 1 {
-                    var signals: [Signal<[MessageId?], NoError>] = []
-                    for messagesGroup in forwardedMessages {
-                        signals.append(enqueueMessages(account: strongSelf.context.account, peerId: peerId, messages: messagesGroup))
-                    }
-                    signal = combineLatest(signals)
-                    |> map { results in
-                        var ids: [MessageId?] = []
-                        for result in results {
-                            ids.append(contentsOf: result)
+                let _ = (strongSelf.shouldDivertMessagesToScheduled(messages: transformedMessages)
+                |> deliverOnMainQueue).start(next: { shouldDivert in
+                    let signal: Signal<[MessageId?], NoError>
+                    var shouldOpenScheduledMessages = false
+                    if forwardSourcePeerIds.count > 1 {
+                        var forwardedMessages = forwardedMessages
+                        if shouldDivert {
+                            forwardedMessages = forwardedMessages.map { messageGroup -> [EnqueueMessage] in
+                                return messageGroup.map { message -> EnqueueMessage in
+                                    return message.withUpdatedAttributes { attributes in
+                                        var attributes = attributes
+                                        attributes.removeAll(where: { $0 is OutgoingScheduleInfoMessageAttribute })
+                                        attributes.append(OutgoingScheduleInfoMessageAttribute(scheduleTime: Int32(Date().timeIntervalSince1970) + 10 * 24 * 60 * 60))
+                                        return attributes
+                                    }
+                                }
+                            }
+                            shouldOpenScheduledMessages = true
                         }
-                        return ids
+                        
+                        var signals: [Signal<[MessageId?], NoError>] = []
+                        for messagesGroup in forwardedMessages {
+                            signals.append(enqueueMessages(account: strongSelf.context.account, peerId: peerId, messages: messagesGroup))
+                        }
+                        signal = combineLatest(signals)
+                        |> map { results in
+                            var ids: [MessageId?] = []
+                            for result in results {
+                                ids.append(contentsOf: result)
+                            }
+                            return ids
+                        }
+                    } else {
+                        var transformedMessages = transformedMessages
+                        if shouldDivert {
+                            transformedMessages = transformedMessages.map { message -> EnqueueMessage in
+                                return message.withUpdatedAttributes { attributes in
+                                    var attributes = attributes
+                                    attributes.removeAll(where: { $0 is OutgoingScheduleInfoMessageAttribute })
+                                    attributes.append(OutgoingScheduleInfoMessageAttribute(scheduleTime: Int32(Date().timeIntervalSince1970) + 10 * 24 * 60 * 60))
+                                    return attributes
+                                }
+                            }
+                            shouldOpenScheduledMessages = true
+                        }
+                        
+                        signal = enqueueMessages(account: strongSelf.context.account, peerId: peerId, messages: transformedMessages)
                     }
-                } else {
-                    signal = enqueueMessages(account: strongSelf.context.account, peerId: peerId, messages: transformedMessages)
-                }
-                
-                let _ = (signal
-                |> deliverOnMainQueue).startStandalone(next: { messageIds in
-                    if let strongSelf = self {
+                    
+                    let _ = (signal
+                    |> deliverOnMainQueue).startStandalone(next: { messageIds in
+                        guard let strongSelf = self else {
+                            return
+                        }
                         if case .scheduledMessages = strongSelf.presentationInterfaceState.subject {
                         } else {
                             strongSelf.chatDisplayNode.historyNode.scrollToEndOfHistory()
+                            
+                            if shouldOpenScheduledMessages {
+                                if let layoutActionOnViewTransitionAction = strongSelf.layoutActionOnViewTransitionAction {
+                                    strongSelf.layoutActionOnViewTransitionAction = nil
+                                    layoutActionOnViewTransitionAction()
+                                }
+                            }
                         }
-                    }
+                    })
+                    
+                    donateSendMessageIntent(account: strongSelf.context.account, sharedContext: strongSelf.context.sharedContext, intentContext: .chat, peerIds: [peerId])
                 })
-                
-                donateSendMessageIntent(account: strongSelf.context.account, sharedContext: strongSelf.context.sharedContext, intentContext: .chat, peerIds: [peerId])
             } else if case let .customChatContents(customChatContents) = strongSelf.subject {
                 switch customChatContents.kind {
                 case .hashTagSearch:
@@ -1366,7 +1443,7 @@ extension ChatControllerImpl {
             if let messageId = strongSelf.presentationInterfaceState.interfaceState.editMessage?.messageId {
                 let _ = (strongSelf.context.engine.data.get(TelegramEngine.EngineData.Item.Messages.Message(id: messageId))
                 |> deliverOnMainQueue).startStandalone(next: { message in
-                    guard let strongSelf = self, let editMessageState = strongSelf.presentationInterfaceState.editMessageState, case let .media(options) = editMessageState.content else {
+                    guard let strongSelf = self, let editMessageState = strongSelf.presentationInterfaceState.editMessageState else {
                         return
                     }
                     var originalMediaReference: AnyMediaReference?
@@ -1381,7 +1458,11 @@ extension ChatControllerImpl {
                             }
                         }
                     }
-                    strongSelf.oldPresentAttachmentMenu(editMediaOptions: options, editMediaReference: originalMediaReference)
+                    var editMediaOptions: MessageMediaEditingOptions?
+                    if case let .media(options) = editMessageState.content {
+                        editMediaOptions = options
+                    }
+                    strongSelf.presentEditingAttachmentMenu(editMediaOptions: editMediaOptions, editMediaReference: originalMediaReference)
                 })
             } else {
                 strongSelf.presentAttachmentMenu(subject: .default)
@@ -1621,7 +1702,7 @@ extension ChatControllerImpl {
                                             var reactionItem: ReactionItem?
                                             
                                             switch updatedReaction {
-                                            case .builtin:
+                                            case .builtin, .stars:
                                                 for reaction in availableReactions.reactions {
                                                     guard let centerAnimation = reaction.centerAnimation else {
                                                         continue
@@ -1904,51 +1985,47 @@ extension ChatControllerImpl {
             }
         }, reportSelectedMessages: { [weak self] in
             if let strongSelf = self, let messageIds = strongSelf.presentationInterfaceState.interfaceState.selectionState?.selectedIds, !messageIds.isEmpty {
-                if let reportReason = strongSelf.presentationInterfaceState.reportReason {
+                if let (_, option, message) = strongSelf.presentationInterfaceState.reportReason {
                     let presentationData = strongSelf.presentationData
-                    let controller = ActionSheetController(presentationData: presentationData, allowInputInset: true)
-                    let dismissAction: () -> Void = { [weak self, weak controller] in
-                        self?.view.window?.endEditing(true)
-                        controller?.dismissAnimated()
-                    }
-                    var message = ""
-                    var items: [ActionSheetItem] = []
-                    items.append(ReportPeerHeaderActionSheetItem(context: strongSelf.context, text: presentationData.strings.Report_AdditionalDetailsText))
-                    items.append(ReportPeerDetailsActionSheetItem(context: strongSelf.context, theme: presentationData.theme, placeholderText: presentationData.strings.Report_AdditionalDetailsPlaceholder, textUpdated: { text in
-                        message = text
-                    }))
-                    items.append(ActionSheetButtonItem(title: presentationData.strings.Report_Report, color: .accent, font: .bold, enabled: true, action: {
-                        dismissAction()
-                        strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withoutSelectionState() } }, completion: { _ in
-                            let _ = (strongSelf.context.engine.peers.reportPeerMessages(messageIds: Array(messageIds), reason: reportReason, message: message)
-                            |> deliverOnMainQueue).startStandalone(completed: {
-                                strongSelf.present(UndoOverlayController(presentationData: presentationData, content: .emoji(name: "PoliceCar", text: presentationData.strings.Report_Succeed), elevatedLayout: false, action: { _ in return false }), in: .current)
-                            })
+                    strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withoutSelectionState() } }, completion: { _ in
+                        let _ = (strongSelf.context.engine.messages.reportContent(subject: .messages(Array(messageIds)), option: option, message: message)
+                        |> deliverOnMainQueue).startStandalone(completed: {
+                            strongSelf.present(UndoOverlayController(presentationData: presentationData, content: .emoji(name: "PoliceCar", text: presentationData.strings.Report_Succeed), elevatedLayout: false, action: { _ in return false }), in: .current)
                         })
-                    }))
-                    
-                    controller.setItemGroups([
-                        ActionSheetItemGroup(items: items),
-                        ActionSheetItemGroup(items: [ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, action: { dismissAction() })])
-                    ])
-                    strongSelf.present(controller, in: .window(.root))
+                    })
                 } else {
-                    strongSelf.present(peerReportOptionsController(context: strongSelf.context, subject: .messages(Array(messageIds).sorted()), passthrough: false, present: { c, a in
-                        self?.present(c, in: .window(.root), with: a)
-                    }, push: { c in
-                        self?.push(c)
-                    }, completion: { _, done in
-                        if done {
-                            strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withoutSelectionState() } })
-                        }
-                    }), in: .window(.root))
+                    strongSelf.context.sharedContext.makeContentReportScreen(
+                        context: strongSelf.context,
+                        subject: .messages(Array(messageIds).sorted()),
+                        forceDark: false,
+                        present: { [weak self] controller in
+                            self?.push(controller)
+                        },
+                        completion: { [weak self] in
+                            self?.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withoutSelectionState() } })
+                        },
+                        requestSelectMessages: nil
+                    )
                 }
             }
         }, reportMessages: { [weak self] messages, contextController in
-            if let strongSelf = self, !messages.isEmpty {
-                let options: [PeerReportOption] = [.spam, .violence, .pornography, .childAbuse, .copyright, .illegalDrugs, .personalDetails, .other]
-                presentPeerReportOptions(context: strongSelf.context, parent: strongSelf, contextController: contextController, subject: .messages(messages.map({ $0.id }).sorted()), options: options, completion: { _, _ in })
+            guard let self, !messages.isEmpty else {
+                return
             }
+            contextController?.dismiss()
+            self.context.sharedContext.makeContentReportScreen(
+                context: self.context,
+                subject: .messages(messages.map({ $0.id }).sorted()),
+                forceDark: false,
+                present: { [weak self] controller in
+                    guard let self else {
+                        return
+                    }
+                    self.push(controller)
+                },
+                completion: {},
+                requestSelectMessages: nil
+            )
         }, blockMessageAuthor: { [weak self] message, contextController in
             contextController?.dismiss(completion: {
                 guard let strongSelf = self else {
@@ -3854,7 +3931,7 @@ extension ChatControllerImpl {
             }
             
             if let navigationController = strongSelf.effectiveNavigationController {
-                let subject: ChatControllerSubject? = sourceMessageId.flatMap { ChatControllerSubject.message(id: .id($0), highlight: ChatControllerSubject.MessageHighlight(quote: nil), timecode: nil) }
+                let subject: ChatControllerSubject? = sourceMessageId.flatMap { ChatControllerSubject.message(id: .id($0), highlight: ChatControllerSubject.MessageHighlight(quote: nil), timecode: nil, setupReply: false) }
                 strongSelf.context.sharedContext.navigateToChatController(NavigateToChatControllerParams(navigationController: navigationController, context: strongSelf.context, chatLocation: .replyThread(replyThreadResult), subject: subject, keepStack: .always))
             }
         }, activatePinnedListPreview: { [weak self] node, gesture in
@@ -3972,6 +4049,8 @@ extension ChatControllerImpl {
             let defaultMyPeerId: PeerId
             if let channel = strongSelf.presentationInterfaceState.renderedPeer?.chatMainPeer as? TelegramChannel, case .group = channel.info, channel.hasPermission(.canBeAnonymous) {
                 defaultMyPeerId = channel.id
+            } else if let channel = strongSelf.presentationInterfaceState.renderedPeer?.chatMainPeer as? TelegramChannel, case let .broadcast(info) = channel.info, info.flags.contains(.messagesShouldHaveProfiles) {
+                defaultMyPeerId = channel.id
             } else {
                 defaultMyPeerId = strongSelf.context.account.peerId
             }
@@ -3983,7 +4062,7 @@ extension ChatControllerImpl {
                 if let strongSelf = self {
                     HapticFeedback().impact()
                     
-                    strongSelf.present(UndoOverlayController(presentationData: strongSelf.presentationData, content: .invitedToVoiceChat(context: strongSelf.context, peer: peer, text: strongSelf.presentationData.strings.Conversation_SendMesageAsPremiumInfo, action: strongSelf.presentationData.strings.EmojiInput_PremiumEmojiToast_Action, duration: 3), elevatedLayout: false, action: { [weak self] action in
+                    strongSelf.present(UndoOverlayController(presentationData: strongSelf.presentationData, content: .invitedToVoiceChat(context: strongSelf.context, peer: peer, title: nil, text: strongSelf.presentationData.strings.Conversation_SendMesageAsPremiumInfo, action: strongSelf.presentationData.strings.EmojiInput_PremiumEmojiToast_Action, duration: 3), elevatedLayout: false, action: { [weak self] action in
                         guard let strongSelf = self else {
                             return true
                         }
@@ -4036,7 +4115,7 @@ extension ChatControllerImpl {
                     }
                     var isBot = false
                     for message in messages {
-                        if let author = message.author, case let .user(user) = author, user.botInfo != nil {
+                        if let author = message.author, case let .user(user) = author, user.botInfo != nil && !user.id.isVerificationCodes {
                             isBot = true
                             break
                         }
@@ -4045,7 +4124,7 @@ extension ChatControllerImpl {
                     if isBot {
                         type = .bot
                     } else if let user = peer as? TelegramUser {
-                        if user.botInfo != nil {
+                        if user.botInfo != nil && !user.id.isVerificationCodes {
                             type = .bot
                         } else {
                             type = .user
@@ -4156,12 +4235,7 @@ extension ChatControllerImpl {
             guard let strongSelf = self, let peerId = strongSelf.chatLocation.peerId else {
                 return
             }
-            var langCode = langCode
-            if langCode == "nb" {
-                langCode = "no"
-            } else if langCode == "pt-br" {
-                langCode = "pt"
-            }
+            let langCode = normalizeTranslationLanguage(langCode)
             let _ = updateChatTranslationStateInteractively(engine: strongSelf.context.engine, peerId: peerId, { current in
                 return current?.withToLang(langCode).withIsEnabled(true)
             }).startStandalone()
@@ -4508,22 +4582,62 @@ extension ChatControllerImpl {
             
             if let peerId = peerId {
                 self.sentMessageEventsDisposable.set((self.context.account.pendingMessageManager.deliveredMessageEvents(peerId: peerId)
-                |> deliverOnMainQueue).startStrict(next: { [weak self] namespace, silent in
-                    if let strongSelf = self {
-                        let inAppNotificationSettings = strongSelf.context.sharedContext.currentInAppNotificationSettings.with { $0 }
-                        if inAppNotificationSettings.playSounds && !silent {
-                            serviceSoundManager.playMessageDeliveredSound()
+                |> deliverOnMainQueue).startStrict(next: { [weak self] eventGroup in
+                    guard let self else {
+                        return
+                    }
+                    let inAppNotificationSettings = self.context.sharedContext.currentInAppNotificationSettings.with { $0 }
+                    if inAppNotificationSettings.playSounds, let firstEvent = eventGroup.first, !firstEvent.isSilent {
+                        serviceSoundManager.playMessageDeliveredSound()
+                    }
+                    if self.presentationInterfaceState.subject != .scheduledMessages, let firstEvent = eventGroup.first, firstEvent.id.namespace == Namespaces.Message.ScheduledCloud {
+                        if eventGroup.contains(where: { $0.isPendingProcessing }) {
+                            self.openScheduledMessages(completion: { [weak self] c in
+                                guard let self else {
+                                    return
+                                }
+                                
+                                c.dismissAllUndoControllers()
+                                
+                                Queue.mainQueue().after(0.5) { [weak c] in
+                                    c?.displayProcessingVideoTooltip(messageId: firstEvent.id)
+                                }
+                                
+                                c.present(
+                                    UndoOverlayController(
+                                        presentationData: self.presentationData,
+                                        content: .universalImage(
+                                            image: generateTintedImage(image: UIImage(bundleImageName: "Chat/ToastImprovingVideo"), color: .white)!,
+                                            size: nil,
+                                            title: self.presentationData.strings.Chat_ToastImprovingVideo_Title,
+                                            text: self.presentationData.strings.Chat_ToastImprovingVideo_Text,
+                                            customUndoText: nil,
+                                            timeout: 5.0
+                                        ),
+                                        elevatedLayout: false,
+                                        position: .top,
+                                        action: { _ in
+                                            return true
+                                        }
+                                    ),
+                                    in: .current
+                                )
+                            })
                         }
-                        if strongSelf.presentationInterfaceState.subject != .scheduledMessages && namespace == Namespaces.Message.ScheduledCloud {
-                            strongSelf.openScheduledMessages()
+                    }
+                    
+                    if self.shouldDisplayChecksTooltip {
+                        Queue.mainQueue().after(1.0) { [weak self] in
+                            self?.displayChecksTooltip()
                         }
-                        
-                        if strongSelf.shouldDisplayChecksTooltip {
-                            Queue.mainQueue().after(1.0) {
-                                strongSelf.displayChecksTooltip()
-                            }
-                            strongSelf.shouldDisplayChecksTooltip = false
-                            strongSelf.checksTooltipDisposable.set(strongSelf.context.engine.notices.dismissServerProvidedSuggestion(suggestion: .newcomerTicks).startStrict())
+                        self.shouldDisplayChecksTooltip = false
+                        self.checksTooltipDisposable.set(self.context.engine.notices.dismissServerProvidedSuggestion(suggestion: .newcomerTicks).startStrict())
+                    }
+                    
+                    if let shouldDisplayProcessingVideoTooltip = self.shouldDisplayProcessingVideoTooltip {
+                        self.shouldDisplayProcessingVideoTooltip = nil
+                        Queue.mainQueue().after(1.0) { [weak self] in
+                            self?.displayProcessingVideoTooltip(messageId: shouldDisplayProcessingVideoTooltip)
                         }
                     }
                 }))
@@ -4831,6 +4945,20 @@ extension ChatControllerImpl {
                 return false
             }), in: .current)
         })
+        
+        if case .scheduledMessages = self.subject {
+            self.postedScheduledMessagesEventsDisposable = (self.context.account.stateManager.sentScheduledMessageIds
+            |> deliverOnMainQueue).start(next: { [weak self] ids in
+                guard let self, let peerId = self.chatLocation.peerId else {
+                    return
+                }
+                let filteredIds = Array(ids).filter({ $0.peerId == peerId })
+                if filteredIds.isEmpty {
+                    return
+                }
+                self.displayPostedScheduledMessagesToast(ids: filteredIds)
+            })
+        }
         
         self.displayNodeDidLoad()
     }

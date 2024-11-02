@@ -70,7 +70,7 @@ public func stringForMessageTimestampStatus(accountPeerId: PeerId, message: Mess
             return strings.Message_RecommendedLabel
         }
     }
-
+    
     var timestamp: Int32
     if let scheduleTime = message.scheduleTime {
         timestamp = scheduleTime
@@ -93,6 +93,10 @@ public func stringForMessageTimestampStatus(accountPeerId: PeerId, message: Mess
     var dateText = stringForMessageTimestamp(timestamp: timestamp, dateTimeFormat: dateTimeFormat)
     if timestamp == scheduleWhenOnlineTimestamp {
         dateText = "         "
+    }
+    
+    if message.id.namespace == Namespaces.Message.ScheduledCloud, let _ = message.pendingProcessingAttribute {
+        return "appx. \(dateText)"
     }
     
     if displayFullDate {
@@ -126,16 +130,22 @@ public func stringForMessageTimestampStatus(accountPeerId: PeerId, message: Mess
     var authorTitle: String?
     if let author = message.author as? TelegramUser {
         if let peer = message.peers[message.id.peerId] as? TelegramChannel, case .broadcast = peer.info {
-            authorTitle = EnginePeer(author).displayTitle(strings: strings, displayOrder: nameDisplayOrder)
+            if let channel = message.peers[message.id.peerId] as? TelegramChannel, case let .broadcast(info) = channel.info, message.author?.id != channel.id, info.flags.contains(.messagesShouldHaveProfiles) {
+            } else {
+                authorTitle = EnginePeer(author).displayTitle(strings: strings, displayOrder: nameDisplayOrder)
+            }
         } else if let forwardInfo = message.forwardInfo, forwardInfo.sourceMessageId?.peerId.namespace == Namespaces.Peer.CloudChannel {
             authorTitle = forwardInfo.authorSignature
         }
     } else {
         if let peer = message.peers[message.id.peerId] as? TelegramChannel, case .broadcast = peer.info {
-            for attribute in message.attributes {
-                if let attribute = attribute as? AuthorSignatureMessageAttribute {
-                    authorTitle = attribute.signature
-                    break
+            if let channel = message.peers[message.id.peerId] as? TelegramChannel, case let .broadcast(info) = channel.info, message.author?.id != channel.id, info.flags.contains(.messagesShouldHaveProfiles) {
+            } else {
+                for attribute in message.attributes {
+                    if let attribute = attribute as? AuthorSignatureMessageAttribute {
+                        authorTitle = attribute.signature
+                        break
+                    }
                 }
             }
         }

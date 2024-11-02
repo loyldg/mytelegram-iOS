@@ -273,6 +273,24 @@ public extension ContainedViewLayoutTransition {
         }
     }
     
+    func updateFrameAdditive(layer: CALayer, frame: CGRect, force: Bool = false, completion: ((Bool) -> Void)? = nil) {
+        if layer.frame.equalTo(frame) && !force {
+            completion?(true)
+        } else {
+            switch self {
+            case .immediate:
+                layer.frame = frame
+                if let completion = completion {
+                    completion(true)
+                }
+            case .animated:
+                let previousFrame = layer.frame
+                layer.frame = frame
+                self.animatePositionAdditive(layer: layer, offset: CGPoint(x: previousFrame.minX - frame.minX, y: previousFrame.minY - frame.minY))
+            }
+        }
+    }
+    
     func updateFrameAdditive(node: ASDisplayNode, frame: CGRect, force: Bool = false, completion: ((Bool) -> Void)? = nil) {
         if node.frame.equalTo(frame) && !force {
             completion?(true)
@@ -533,6 +551,17 @@ public extension ContainedViewLayoutTransition {
             completion?(true)
         case let .animated(duration, curve):
             layer.animateKeyframes(values: keyframes.map(NSValue.init(cgPoint:)), duration: duration, keyPath: "position", timingFunction: curve.timingFunction, mediaTimingFunction: curve.mediaTimingFunction, removeOnCompletion: removeOnCompletion, completion: { value in
+                completion?(value)
+            })
+        }
+    }
+    
+    func animateScaleWithKeyframes(layer: CALayer, keyframes: [CGFloat], removeOnCompletion: Bool = true, additive: Bool = false, completion: ((Bool) -> Void)? = nil) {
+        switch self {
+        case .immediate:
+            completion?(true)
+        case let .animated(duration, curve):
+            layer.animateKeyframes(values: keyframes.map { NSNumber(value: Float($0)) }, duration: duration, keyPath: "transform.scale", timingFunction: curve.timingFunction, mediaTimingFunction: curve.mediaTimingFunction, removeOnCompletion: removeOnCompletion, completion: { value in
                 completion?(value)
             })
         }

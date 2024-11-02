@@ -17,6 +17,9 @@ import SavedTagNameAlertController
 import PremiumUI
 import ChatSendStarsScreen
 import ChatMessageItemCommon
+import ChatMessageItemView
+import ReactionSelectionNode
+import AnimatedTextComponent
 
 extension ChatControllerImpl {
     func presentTagPremiumPaywall() {
@@ -41,7 +44,7 @@ extension ChatControllerImpl {
             
             let reactionFile: Signal<TelegramMediaFile?, NoError>
             switch value {
-            case .builtin:
+            case .builtin, .stars:
                 reactionFile = self.context.engine.stickers.availableReactions()
                 |> take(1)
                 |> map { availableReactions -> TelegramMediaFile? in
@@ -161,37 +164,10 @@ extension ChatControllerImpl {
                 self.window?.presentInGlobalOverlay(controller)
             })
         } else {
-            if self.context.sharedContext.applicationBindings.appBuildType == .internal, case .custom(MessageReaction.starsReactionId) = value {
-                let _ = (ChatSendStarsScreen.initialData(context: self.context, peerId: message.id.peerId)
-                |> deliverOnMainQueue).start(next: { [weak self] initialData in
-                    guard let self, let initialData else {
-                        return
-                    }
-                    self.push(ChatSendStarsScreen(context: self.context, initialData: initialData, completion: { [weak self] amount in
-                        guard let self else {
-                            return
-                        }
-                        
-                        let _ = (self.context.engine.stickers.resolveInlineStickers(fileIds: [MessageReaction.starsReactionId])
-                        |> deliverOnMainQueue).start(next: { [weak self] files in
-                            guard let self, let file = files[MessageReaction.starsReactionId] else {
-                                return
-                            }
-                            
-                            //TODO:localize
-                            let title: String
-                            if amount == 1 {
-                                title = "Star Sent"
-                            } else {
-                                title = "\(amount) Stars Sent"
-                            }
-                            
-                            self.present(UndoOverlayController(presentationData: self.presentationData, content: .starsSent(context: self.context, file: file, amount: amount, title: title, text: nil), elevatedLayout: false, action: { _ in
-                                return false
-                            }), in: .current)
-                        })
-                    }))
-                })
+            if case .stars = value {
+                gesture?.cancel()
+                cancelParentGestures(view: sourceView)
+                self.openMessageSendStarsScreen(message: message)
                 
                 return
             }
@@ -216,7 +192,7 @@ extension ChatControllerImpl {
                 if canViewMessageReactionList(message: message) {
                     items = ContextController.Items(content: .custom(ReactionListContextMenuContent(
                         context: self.context,
-                        displayReadTimestamps: false,
+                        displayReadTimestamps: true,
                         availableReactions: availableReactions,
                         animationCache: self.controllerInteraction!.presentationContext.animationCache,
                         animationRenderer: self.controllerInteraction!.presentationContext.animationRenderer,
@@ -341,7 +317,7 @@ extension ChatControllerImpl {
                         |> mapToSignal { result -> Signal<ContextController.Tip?, NoError> in
                             if case let .result(info, items, _) = result, let presentationContext = presentationContext {
                                 let tip: ContextController.Tip = .animatedEmoji(
-                                    text: presentationData.strings.ChatContextMenu_ReactionEmojiSetSingle(info.title).string,
+                                    text: presentationData.strings.ChatContextMenu_SingleReactionEmojiSet(info.title).string,
                                     arguments: TextNodeWithEntities.Arguments(
                                         context: context,
                                         cache: presentationContext.animationCache,
@@ -361,7 +337,7 @@ extension ChatControllerImpl {
                 
                 let reactionFile: TelegramMediaFile?
                 switch value {
-                case .builtin:
+                case .builtin, .stars:
                     reactionFile = availableReactions?.reactions.first(where: { $0.value == value })?.selectAnimation
                 case let .custom(fileId):
                     reactionFile = customEmoji[fileId]
@@ -389,6 +365,174 @@ extension ChatControllerImpl {
                 })
                 self.window?.presentInGlobalOverlay(controller)
             })
+        }
+    }
+    
+    func openMessageSendStarsScreen(message: Message) {
+        if let current = self.currentSendStarsUndoController {
+            self.currentSendStarsUndoController = nil
+            current.dismiss()
+        }
+        self.context.engine.messages.forceSendPendingSendStarsReaction(id: message.id)
+        
+        guard let peerId = self.chatLocation.peerId else {
+            return
+        }
+        let _ = (self.context.engine.data.get(TelegramEngine.EngineData.Item.Peer.ReactionSettings(id: peerId))
+        |> deliverOnMainQueue).startStandalone(next: { [weak self] reactionSettings in
+            guard let self else {
+                return
+            }
+        
+            let reactionsAttribute = mergedMessageReactions(attributes: message.attributes, isTags: false)
+            let _ = (ChatSendStarsScreen.initialData(context: self.context, peerId: message.id.peerId, messageId: message.id, topPeers: reactionsAttribute?.topPeers ?? [])
+            |> deliverOnMainQueue).start(next: { [weak self] initialData in
+                guard let self, let initialData else {
+                    return
+                }
+                HapticFeedback().tap()
+                self.push(ChatSendStarsScreen(context: self.context, initialData: initialData, completion: { [weak self] amount, isAnonymous, isBecomingTop, transitionOut in
+                    guard let self, amount > 0 else {
+                        return
+                    }
+                    
+                    if case let .known(reactionSettings) = reactionSettings, let starsAllowed = reactionSettings.starsAllowed, !starsAllowed {
+                        if let peer = self.presentationInterfaceState.renderedPeer?.chatMainPeer {
+                            self.present(standardTextAlertController(theme: AlertControllerTheme(presentationData: self.presentationData), title: nil, text: self.presentationData.strings.Chat_ToastStarsReactionsDisabled(peer.debugDisplayTitle).string, actions: [
+                                TextAlertAction(type: .genericAction, title: self.presentationData.strings.Common_OK, action: {})
+                            ]), in: .window(.root))
+                        }
+                        return
+                    }
+                    
+                    var sourceItemNode: ChatMessageItemView?
+                    self.chatDisplayNode.historyNode.forEachItemNode { itemNode in
+                        if let itemNode = itemNode as? ChatMessageItemView {
+                            if itemNode.item?.message.id == message.id {
+                                sourceItemNode = itemNode
+                                return
+                            }
+                        }
+                    }
+                    
+                    if let itemNode = sourceItemNode, let item = itemNode.item, let availableReactions = item.associatedData.availableReactions, let targetView = itemNode.targetReactionView(value: .stars) {
+                        var reactionItem: ReactionItem?
+                        
+                        for reaction in availableReactions.reactions {
+                            guard let centerAnimation = reaction.centerAnimation else {
+                                continue
+                            }
+                            guard let aroundAnimation = reaction.aroundAnimation else {
+                                continue
+                            }
+                            if reaction.value == .stars {
+                                reactionItem = ReactionItem(
+                                    reaction: ReactionItem.Reaction(rawValue: reaction.value),
+                                    appearAnimation: reaction.appearAnimation,
+                                    stillAnimation: reaction.selectAnimation,
+                                    listAnimation: centerAnimation,
+                                    largeListAnimation: reaction.activateAnimation,
+                                    applicationAnimation: aroundAnimation,
+                                    largeApplicationAnimation: reaction.effectAnimation,
+                                    isCustom: false
+                                )
+                                break
+                            }
+                        }
+                        
+                        if let reactionItem {
+                            let standaloneReactionAnimation = StandaloneReactionAnimation(genericReactionEffect: self.chatDisplayNode.historyNode.takeGenericReactionEffect())
+                            
+                            self.chatDisplayNode.messageTransitionNode.addMessageStandaloneReactionAnimation(messageId: item.message.id, standaloneReactionAnimation: standaloneReactionAnimation)
+                            
+                            self.view.window?.addSubview(standaloneReactionAnimation.view)
+                            standaloneReactionAnimation.frame = self.chatDisplayNode.bounds
+                            standaloneReactionAnimation.animateOutToReaction(
+                                context: self.context,
+                                theme: self.presentationData.theme,
+                                item: reactionItem,
+                                value: .stars,
+                                sourceView: transitionOut.sourceView,
+                                targetView: targetView,
+                                hideNode: false,
+                                forceSwitchToInlineImmediately: false,
+                                animateTargetContainer: nil,
+                                addStandaloneReactionAnimation: { [weak self] standaloneReactionAnimation in
+                                    guard let self else {
+                                        return
+                                    }
+                                    self.chatDisplayNode.messageTransitionNode.addMessageStandaloneReactionAnimation(messageId: item.message.id, standaloneReactionAnimation: standaloneReactionAnimation)
+                                    standaloneReactionAnimation.frame = self.chatDisplayNode.bounds
+                                    self.chatDisplayNode.addSubnode(standaloneReactionAnimation)
+                                },
+                                onHit: { [weak self, weak itemNode] in
+                                    guard let self else {
+                                        return
+                                    }
+                                    
+                                    if isBecomingTop {
+                                        self.chatDisplayNode.animateQuizCorrectOptionSelected()
+                                    }
+                                    
+                                    if let itemNode, let targetView = itemNode.targetReactionView(value: .stars), self.context.sharedContext.energyUsageSettings.fullTranslucency {
+                                        self.chatDisplayNode.wrappingNode.triggerRipple(at: targetView.convert(targetView.bounds.center, to: self.chatDisplayNode.view))
+                                    }
+                                },
+                                completion: { [weak standaloneReactionAnimation] in
+                                    standaloneReactionAnimation?.view.removeFromSuperview()
+                                }
+                            )
+                        }
+                    }
+                    
+                    let _ = self.context.engine.messages.sendStarsReaction(id: message.id, count: Int(amount), isAnonymous: isAnonymous).startStandalone()
+                    self.displayOrUpdateSendStarsUndo(messageId: message.id, count: Int(amount), isAnonymous: isAnonymous)
+                }))
+            })
+        })
+    }
+    
+    func displayOrUpdateSendStarsUndo(messageId: EngineMessage.Id, count: Int, isAnonymous: Bool) {
+        if self.currentSendStarsUndoMessageId != messageId {
+            if let current = self.currentSendStarsUndoController {
+                self.currentSendStarsUndoController = nil
+                current.dismiss()
+            }
+        }
+        
+        if let _ = self.currentSendStarsUndoController {
+            self.currentSendStarsUndoCount += count
+        } else {
+            self.currentSendStarsUndoCount = count
+        }
+        
+        let title: String
+        if isAnonymous {
+            title = self.presentationData.strings.Chat_ToastStarsSent_AnonymousTitle(Int32(self.currentSendStarsUndoCount))
+        } else {
+            title = self.presentationData.strings.Chat_ToastStarsSent_Title(Int32(self.currentSendStarsUndoCount))
+        }
+        
+        let textItems = AnimatedTextComponent.extractAnimatedTextString(string: self.presentationData.strings.Chat_ToastStarsSent_Text("", ""), id: "text", mapping: [
+            0: .number(self.currentSendStarsUndoCount, minDigits: 1),
+            1: .text(self.presentationData.strings.Chat_ToastStarsSent_TextStarAmount(Int32(self.currentSendStarsUndoCount)))
+        ])
+        
+        self.currentSendStarsUndoMessageId = messageId
+        if let current = self.currentSendStarsUndoController {
+            current.content = .starsSent(context: self.context, title: title, text: textItems)
+        } else {
+            let controller = UndoOverlayController(presentationData: self.presentationData, content: .starsSent(context: self.context, title: title, text: textItems), elevatedLayout: false, position: .top, action: { [weak self] action in
+                guard let self else {
+                    return false
+                }
+                if case .undo = action {
+                    self.context.engine.messages.cancelPendingSendStarsReaction(id: messageId)
+                }
+                return false
+            })
+            self.currentSendStarsUndoController = controller
+            self.present(controller, in: .current)
         }
     }
 }

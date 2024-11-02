@@ -32,6 +32,8 @@ extension PremiumGiftSource {
             return "attach"
         case .settings:
             return "settings"
+        case .stars:
+            return ""
         case .chatList:
             return "chats"
         case .channelBoost:
@@ -241,7 +243,6 @@ private final class PremiumGiftScreenContentComponent: CombinedComponent {
                         }
                         names.append("**\(context.component.peers[i].compactDisplayTitle)**")
                     }
-                    descriptionString = strings.Premium_Gift_MultipleDescription(names, "").string
                 } else {
                     for i in 0 ..< min(3, context.component.peers.count) {
                         if i == 0 {
@@ -624,7 +625,7 @@ private final class PremiumGiftScreenContentComponent: CombinedComponent {
                         if let signal = signal {
                             let _ = (signal
                             |> deliverOnMainQueue).start(next: { resolvedUrl in
-                                context.sharedContext.openResolvedUrl(resolvedUrl, context: context, urlContext: .generic, navigationController: navigationController, forceExternal: false, openPeer: { peer, navigation in
+                                context.sharedContext.openResolvedUrl(resolvedUrl, context: context, urlContext: .generic, navigationController: navigationController, forceExternal: false, forceUpdate: false, openPeer: { peer, navigation in
                                 }, sendFile: nil, sendSticker: nil, sendEmoji: nil, requestMessageActionUrlAuth: nil, joinVoiceChat: nil, present: { [weak controller] c, arguments in
                                     controller?.push(c)
                                 }, dismissInput: {}, contentContext: nil, progress: nil, completion: nil)
@@ -878,7 +879,7 @@ private final class PremiumGiftScreenComponent: CombinedComponent {
                 price = nil
             }
             let buttonText = presentationData.strings.Premium_Gift_GiftSubscription(price ?? "—").string
-            self.buttonStatePromise.set(.single(AttachmentMainButtonState(text: buttonText, font: .bold, background: .premium, textColor: .white, isVisible: true, progress: self.inProgress ? .center : .none, isEnabled: true)))
+            self.buttonStatePromise.set(.single(AttachmentMainButtonState(text: buttonText, font: .bold, background: .premium, textColor: .white, isVisible: true, progress: self.inProgress ? .center : .none, isEnabled: true, hasShimmer: true)))
         }
         
         func buy() {
@@ -909,7 +910,7 @@ private final class PremiumGiftScreenComponent: CombinedComponent {
             if self.source == .profile || self.source == .attachMenu, let peerId = self.peerIds.first {
                 purpose = .gift(peerId: peerId, currency: currency, amount: amount)
             } else {
-                purpose = .giftCode(peerIds: self.peerIds, boostPeer: nil, currency: currency, amount: amount)
+                purpose = .giftCode(peerIds: self.peerIds, boostPeer: nil, currency: currency, amount: amount, text: nil, entities: nil)
                 quantity = Int32(self.peerIds.count)
             }
             

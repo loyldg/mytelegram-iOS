@@ -2572,7 +2572,8 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                         footer: AnyComponent(MultilineTextComponent(
                             text: .plain(adsInfoString),
                             maximumNumberOfLines: 0,
-                            highlightColor: environment.theme.list.itemAccentColor.withAlphaComponent(0.2),
+                            highlightColor: environment.theme.list.itemAccentColor.withAlphaComponent(0.1),
+                            highlightInset: UIEdgeInsets(top: 0.0, left: 0.0, bottom: 0.0, right: -8.0),
                             highlightAction: { attributes in
                                 if let _ = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.URL)] {
                                     return NSAttributedString.Key(rawValue: TelegramTextAttributes.URL)
@@ -2720,7 +2721,7 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                             if url.hasPrefix("https://apps.apple.com/account/subscriptions") {
                                 controller.context.sharedContext.applicationBindings.openSubscriptions()
                             } else if url.hasPrefix("https://") || url.hasPrefix("tg://") {
-                                controller.context.sharedContext.openExternalUrl(context: controller.context, urlContext: .generic, url: url, forceExternal: !url.hasPrefix("tg://") && !url.contains("?start="), presentationData: controller.context.sharedContext.currentPresentationData.with({$0}), navigationController: nil, dismissInput: {})
+                                controller.context.sharedContext.openExternalUrl(context: controller.context, urlContext: .generic, url: url, forceExternal: false, presentationData: controller.context.sharedContext.currentPresentationData.with({$0}), navigationController: navigationController, dismissInput: {})
                             } else {
                                 let context = controller.context
                                 let signal: Signal<ResolvedUrl, NoError>?
@@ -2735,7 +2736,7 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                                 if let signal = signal {
                                     let _ = (signal
                                     |> deliverOnMainQueue).start(next: { resolvedUrl in
-                                        context.sharedContext.openResolvedUrl(resolvedUrl, context: context, urlContext: .generic, navigationController: navigationController, forceExternal: false, openPeer: { peer, navigation in
+                                        context.sharedContext.openResolvedUrl(resolvedUrl, context: context, urlContext: .generic, navigationController: navigationController, forceExternal: false, forceUpdate: false, openPeer: { peer, navigation in
                                         }, sendFile: nil, sendSticker: nil, sendEmoji: nil, requestMessageActionUrlAuth: nil, joinVoiceChat: nil, present: { [weak controller] c, arguments in
                                             controller?.push(c)
                                         }, dismissInput: {}, contentContext: nil, progress: nil, completion: nil)

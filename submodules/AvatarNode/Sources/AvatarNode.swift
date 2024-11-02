@@ -22,6 +22,7 @@ public let repostStoryIcon = generateTintedImage(image: UIImage(bundleImageName:
 private let archivedChatsIcon = UIImage(bundleImageName: "Avatar/ArchiveAvatarIcon")?.precomposed()
 private let repliesIcon = generateTintedImage(image: UIImage(bundleImageName: "Avatar/RepliesMessagesIcon"), color: .white)
 private let anonymousSavedMessagesIcon = generateTintedImage(image: UIImage(bundleImageName: "Avatar/AnonymousSenderIcon"), color: .white)
+private let anonymousSavedMessagesDarkIcon = generateTintedImage(image: UIImage(bundleImageName: "Avatar/AnonymousSenderIcon"), color: UIColor(white: 1.0, alpha: 0.4))
 private let myNotesIcon = generateTintedImage(image: UIImage(bundleImageName: "Avatar/MyNotesIcon"), color: .white)
 
 public func avatarPlaceholderFont(size: CGFloat) -> UIFont {
@@ -66,7 +67,7 @@ private class AvatarNodeParameters: NSObject {
     }
 }
 
-private func calculateColors(context: AccountContext?, explicitColorIndex: Int?, peerId: EnginePeer.Id?, nameColor: PeerNameColor?, icon: AvatarNodeIcon, theme: PresentationTheme?) -> [UIColor] {
+public func calculateAvatarColors(context: AccountContext?, explicitColorIndex: Int?, peerId: EnginePeer.Id?, nameColor: PeerNameColor?, icon: AvatarNodeIcon, theme: PresentationTheme?) -> [UIColor] {
     let colorIndex: Int
     if let explicitColorIndex = explicitColorIndex {
         colorIndex = explicitColorIndex
@@ -94,8 +95,16 @@ private func calculateColors(context: AccountContext?, explicitColorIndex: Int?,
             colors = AvatarNode.repostColors
         } else if case .repliesIcon = icon {
             colors = AvatarNode.savedMessagesColors
-        } else if case .anonymousSavedMessagesIcon = icon {
-            colors = AvatarNode.savedMessagesColors
+        } else if case let .anonymousSavedMessagesIcon(isColored) = icon {
+            if isColored {
+                colors = AvatarNode.savedMessagesColors
+            } else {
+                if let theme, theme.overallDarkAppearance {
+                    colors = AvatarNode.grayscaleDarkColors
+                } else {
+                    colors = AvatarNode.grayscaleColors
+                }
+            }
         } else if case .myNotesIcon = icon {
             colors = AvatarNode.savedMessagesColors
         } else if case .editAvatarIcon = icon, let theme {
@@ -174,11 +183,11 @@ private func ==(lhs: AvatarNodeState, rhs: AvatarNodeState) -> Bool {
     }
 }
 
-private enum AvatarNodeIcon: Equatable {
+public enum AvatarNodeIcon: Equatable {
     case none
     case savedMessagesIcon
     case repliesIcon
-    case anonymousSavedMessagesIcon
+    case anonymousSavedMessagesIcon(isColored: Bool)
     case myNotesIcon
     case archivedChatsIcon(hiddenByDefault: Bool)
     case editAvatarIcon
@@ -192,7 +201,7 @@ public enum AvatarNodeImageOverride: Equatable {
     case image(TelegramMediaImageRepresentation)
     case savedMessagesIcon
     case repliesIcon
-    case anonymousSavedMessagesIcon
+    case anonymousSavedMessagesIcon(isColored: Bool)
     case myNotesIcon
     case archivedChatsIcon(hiddenByDefault: Bool)
     case editAvatarIcon(forceNone: Bool)
@@ -263,6 +272,10 @@ public final class AvatarNode: ASDisplayNode {
     
     static let grayscaleColors: [UIColor] = [
         UIColor(rgb: 0xb1b1b1), UIColor(rgb: 0xcdcdcd)
+    ]
+    
+    static let grayscaleDarkColors: [UIColor] = [
+        UIColor(white: 1.0, alpha: 0.22), UIColor(white: 1.0, alpha: 0.18)
     ]
     
     static let savedMessagesColors: [UIColor] = [
@@ -506,9 +519,9 @@ public final class AvatarNode: ASDisplayNode {
                 case .repliesIcon:
                     representation = nil
                     icon = .repliesIcon
-                case .anonymousSavedMessagesIcon:
+                case let .anonymousSavedMessagesIcon(isColored):
                     representation = nil
-                    icon = .anonymousSavedMessagesIcon
+                    icon = .anonymousSavedMessagesIcon(isColored: isColored)
                 case .myNotesIcon:
                     representation = nil
                     icon = .myNotesIcon
@@ -564,7 +577,7 @@ public final class AvatarNode: ASDisplayNode {
                         self.editOverlayNode?.isHidden = true
                     }
                     
-                    parameters = AvatarNodeParameters(theme: theme, accountPeerId: accountPeerId, peerId: peer.id, colors: calculateColors(context: nil, explicitColorIndex: nil, peerId: peer.id, nameColor: peer.nameColor, icon: icon, theme: theme), letters: peer.displayLetters, font: self.font, icon: icon, explicitColorIndex: nil, hasImage: true, clipStyle: clipStyle)
+                    parameters = AvatarNodeParameters(theme: theme, accountPeerId: accountPeerId, peerId: peer.id, colors: calculateAvatarColors(context: nil, explicitColorIndex: nil, peerId: peer.id, nameColor: peer.nameColor, icon: icon, theme: theme), letters: peer.displayLetters, font: self.font, icon: icon, explicitColorIndex: nil, hasImage: true, clipStyle: clipStyle)
                 } else {
                     self.imageReady.set(.single(true))
                     self.displaySuspended = false
@@ -573,7 +586,7 @@ public final class AvatarNode: ASDisplayNode {
                     }
                     
                     self.editOverlayNode?.isHidden = true
-                    let colors = calculateColors(context: nil, explicitColorIndex: nil, peerId: peer?.id ?? EnginePeer.Id(0), nameColor: peer?.nameColor, icon: icon, theme: theme)
+                    let colors = calculateAvatarColors(context: nil, explicitColorIndex: nil, peerId: peer?.id ?? EnginePeer.Id(0), nameColor: peer?.nameColor, icon: icon, theme: theme)
                     parameters = AvatarNodeParameters(theme: theme, accountPeerId: accountPeerId, peerId: peer?.id ?? EnginePeer.Id(0), colors: colors, letters: peer?.displayLetters ?? [], font: self.font, icon: icon, explicitColorIndex: nil, hasImage: false, clipStyle: clipStyle)
                     
                     if let badgeView = self.badgeView {
@@ -681,9 +694,9 @@ public final class AvatarNode: ASDisplayNode {
                 case .repliesIcon:
                     representation = nil
                     icon = .repliesIcon
-                case .anonymousSavedMessagesIcon:
+                case let .anonymousSavedMessagesIcon(isColored):
                     representation = nil
-                    icon = .anonymousSavedMessagesIcon
+                    icon = .anonymousSavedMessagesIcon(isColored: isColored)
                 case .myNotesIcon:
                     representation = nil
                     icon = .myNotesIcon
@@ -741,7 +754,7 @@ public final class AvatarNode: ASDisplayNode {
                         self.editOverlayNode?.isHidden = true
                     }
                     
-                    parameters = AvatarNodeParameters(theme: theme, accountPeerId: account.peerId, peerId: peer.id, colors: calculateColors(context: genericContext, explicitColorIndex: nil, peerId: peer.id, nameColor: peer.nameColor, icon: icon, theme: theme), letters: peer.displayLetters, font: self.font, icon: icon, explicitColorIndex: nil, hasImage: true, clipStyle: clipStyle)
+                    parameters = AvatarNodeParameters(theme: theme, accountPeerId: account.peerId, peerId: peer.id, colors: calculateAvatarColors(context: genericContext, explicitColorIndex: nil, peerId: peer.id, nameColor: peer.nameColor, icon: icon, theme: theme), letters: peer.displayLetters, font: self.font, icon: icon, explicitColorIndex: nil, hasImage: true, clipStyle: clipStyle)
                 } else {
                     self.imageReady.set(.single(true))
                     self.displaySuspended = false
@@ -750,7 +763,7 @@ public final class AvatarNode: ASDisplayNode {
                     }
                     
                     self.editOverlayNode?.isHidden = true
-                    let colors = calculateColors(context: genericContext, explicitColorIndex: nil, peerId: peer?.id ?? EnginePeer.Id(0), nameColor: peer?.nameColor, icon: icon, theme: theme)
+                    let colors = calculateAvatarColors(context: genericContext, explicitColorIndex: nil, peerId: peer?.id ?? EnginePeer.Id(0), nameColor: peer?.nameColor, icon: icon, theme: theme)
                     parameters = AvatarNodeParameters(theme: theme, accountPeerId: account.peerId, peerId: peer?.id ?? EnginePeer.Id(0), colors: colors, letters: peer?.displayLetters ?? [], font: self.font, icon: icon, explicitColorIndex: nil, hasImage: false, clipStyle: clipStyle)
                     
                     if let badgeView = self.badgeView {
@@ -787,9 +800,9 @@ public final class AvatarNode: ASDisplayNode {
                 
                 let parameters: AvatarNodeParameters
                 if let icon = icon, case .phone = icon {
-                    parameters = AvatarNodeParameters(theme: nil, accountPeerId: nil, peerId: nil, colors: calculateColors(context: nil, explicitColorIndex: explicitIndex, peerId: nil, nameColor: nil, icon: .phoneIcon, theme: nil), letters: [], font: self.font, icon: .phoneIcon, explicitColorIndex: explicitIndex, hasImage: false, clipStyle: .round)
+                    parameters = AvatarNodeParameters(theme: nil, accountPeerId: nil, peerId: nil, colors: calculateAvatarColors(context: nil, explicitColorIndex: explicitIndex, peerId: nil, nameColor: nil, icon: .phoneIcon, theme: nil), letters: [], font: self.font, icon: .phoneIcon, explicitColorIndex: explicitIndex, hasImage: false, clipStyle: .round)
                 } else {
-                    parameters = AvatarNodeParameters(theme: nil, accountPeerId: nil, peerId: nil, colors: calculateColors(context: nil, explicitColorIndex: explicitIndex, peerId: nil, nameColor: nil, icon: .none, theme: nil), letters: letters, font: self.font, icon: .none, explicitColorIndex: explicitIndex, hasImage: false, clipStyle: .round)
+                    parameters = AvatarNodeParameters(theme: nil, accountPeerId: nil, peerId: nil, colors: calculateAvatarColors(context: nil, explicitColorIndex: explicitIndex, peerId: nil, nameColor: nil, icon: .none, theme: nil), letters: letters, font: self.font, icon: .none, explicitColorIndex: explicitIndex, hasImage: false, clipStyle: .round)
                 }
                 
                 self.displaySuspended = true
@@ -918,14 +931,20 @@ public final class AvatarNode: ASDisplayNode {
                     if let repliesIcon = repliesIcon {
                         context.draw(repliesIcon.cgImage!, in: CGRect(origin: CGPoint(x: floor((bounds.size.width - repliesIcon.size.width) / 2.0), y: floor((bounds.size.height - repliesIcon.size.height) / 2.0)), size: repliesIcon.size))
                     }
-                } else if case .anonymousSavedMessagesIcon = parameters.icon {
+                } else if case let .anonymousSavedMessagesIcon(isColored) = parameters.icon {
                     let factor = bounds.size.width / 60.0
                     context.translateBy(x: bounds.size.width / 2.0, y: bounds.size.height / 2.0)
                     context.scaleBy(x: factor, y: -factor)
                     context.translateBy(x: -bounds.size.width / 2.0, y: -bounds.size.height / 2.0)
                     
-                    if let anonymousSavedMessagesIcon = anonymousSavedMessagesIcon {
-                        context.draw(anonymousSavedMessagesIcon.cgImage!, in: CGRect(origin: CGPoint(x: floor((bounds.size.width - anonymousSavedMessagesIcon.size.width) / 2.0), y: floor((bounds.size.height - anonymousSavedMessagesIcon.size.height) / 2.0)), size: anonymousSavedMessagesIcon.size))
+                    if let theme = parameters.theme, theme.overallDarkAppearance, !isColored {
+                        if let anonymousSavedMessagesDarkIcon = anonymousSavedMessagesDarkIcon {
+                            context.draw(anonymousSavedMessagesDarkIcon.cgImage!, in: CGRect(origin: CGPoint(x: floor((bounds.size.width - anonymousSavedMessagesDarkIcon.size.width) / 2.0), y: floor((bounds.size.height - anonymousSavedMessagesDarkIcon.size.height) / 2.0)), size: anonymousSavedMessagesDarkIcon.size))
+                        }
+                    } else {
+                        if let anonymousSavedMessagesIcon = anonymousSavedMessagesIcon {
+                            context.draw(anonymousSavedMessagesIcon.cgImage!, in: CGRect(origin: CGPoint(x: floor((bounds.size.width - anonymousSavedMessagesIcon.size.width) / 2.0), y: floor((bounds.size.height - anonymousSavedMessagesIcon.size.height) / 2.0)), size: anonymousSavedMessagesIcon.size))
+                        }
                     }
                 } else if case .myNotesIcon = parameters.icon {
                     let factor = bounds.size.width / 60.0

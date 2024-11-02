@@ -87,6 +87,9 @@ private final class ItemNode: ASDisplayNode {
         case .channels:
             title = presentationData.strings.ChatList_Search_FilterChannels
             icon = nil
+        case .apps:
+            title = presentationData.strings.ChatList_Search_FilterApps
+            icon = nil
         case .media:
             title = presentationData.strings.ChatList_Search_FilterMedia
             icon = nil
@@ -104,6 +107,9 @@ private final class ItemNode: ASDisplayNode {
             icon = nil
         case .voice:
             title = presentationData.strings.ChatList_Search_FilterVoice
+            icon = nil
+        case .publicPosts:
+            title = presentationData.strings.ChatList_Search_FilterPublicPosts
             icon = nil
         case let .peer(peerId, isGroup, displayTitle, _):
             title = displayTitle

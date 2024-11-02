@@ -548,7 +548,7 @@ final class StoryItemSetViewListComponent: Component {
                             title: item.peer.displayTitle(strings: component.strings, displayOrder: .firstLast),
                             peer: item.peer,
                             storyStats: item.storyStats,
-                            subtitle: dateText,
+                            subtitle: PeerListItemComponent.Subtitle(text: dateText, color: .neutral),
                             subtitleAccessory: subtitleAccessory,
                             presence: nil,
                             reaction: item.reaction.flatMap { reaction -> PeerListItemComponent.Reaction in
@@ -569,6 +569,15 @@ final class StoryItemSetViewListComponent: Component {
                                     if case let .view(view) = item {
                                         animationFile = view.reactionFile
                                     }
+                                case .stars:
+                                    if let availableReactions = component.availableReactions {
+                                        for availableReaction in availableReactions.reactionItems {
+                                            if availableReaction.reaction.rawValue == reaction {
+                                                animationFile = availableReaction.listAnimation
+                                                break
+                                            }
+                                        }
+                                    }
                                 }
                                 return PeerListItemComponent.Reaction(
                                     reaction: reaction,
@@ -580,7 +589,7 @@ final class StoryItemSetViewListComponent: Component {
                             message: item.message,
                             selectionState: .none,
                             hasNext: index != viewListState.totalCount - 1 || itemLayout.premiumFooterSize != nil,
-                            action: { [weak self] peer, messageId, sourceView in
+                            action: { [weak self] peer, messageId, itemView in
                                 guard let self, let component = self.component else {
                                     return
                                 }
@@ -589,7 +598,7 @@ final class StoryItemSetViewListComponent: Component {
                                 }
                                 if let messageId {
                                     component.openMessage(peer, messageId)
-                                } else if let storyItem, let sourceView {
+                                } else if let storyItem, let sourceView = itemView.imageNode?.view {
                                     component.openReposts(peer, storyItem.id, sourceView)
                                 } else {
                                     component.openPeer(peer)
@@ -920,7 +929,7 @@ final class StoryItemSetViewListComponent: Component {
                     sideInset: 0.0,
                     title: "AAAAAAAAAAAA",
                     peer: nil,
-                    subtitle: "BBBBBBB",
+                    subtitle: PeerListItemComponent.Subtitle(text: "BBBBBBB", color: .neutral),
                     subtitleAccessory: .checks,
                     presence: nil,
                     selectionState: .none,
@@ -1105,11 +1114,11 @@ final class StoryItemSetViewListComponent: Component {
                 let attributes = MarkdownAttributes(body: body, bold: bold, link: link, linkAttribute: { _ in return ("URL", "") })
                 
                 let text: String
-                if self.configuration.listMode == .everyone && (self.query == nil || self.query == "") {
+                if self.configuration.listMode == .everyone && ((self.query ?? "") == "") {
                     if component.storyItem.expirationTimestamp <= Int32(Date().timeIntervalSince1970) {
                         if emptyButton == nil {
                             if let views = component.storyItem.views, views.seenCount > 0 {
-                                text = component.strings.Story_Views_ViewsNotRecorded
+                                text = component.peerId.isGroupOrChannel ? component.strings.Story_Views_NoReactions : component.strings.Story_Views_ViewsNotRecorded
                             } else {
                                 text = component.strings.Story_Views_ViewsExpired
                             }

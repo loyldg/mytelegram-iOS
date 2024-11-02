@@ -186,7 +186,7 @@ final class GreetingMessageListItemComponent: Component {
                     },
                     openPremiumIntro: {
                     },
-                    openPremiumGift: { _ in
+                    openPremiumGift: { _, _ in
                     },
                     openPremiumManagement: {
                     },
@@ -201,6 +201,8 @@ final class GreetingMessageListItemComponent: Component {
                     hideChatFolderUpdates: {
                     },
                     openStories: { _, _ in
+                    },
+                    openStarsTopup: { _ in
                     },
                     dismissNotice: { _ in
                     },

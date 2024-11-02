@@ -63,6 +63,7 @@ public enum DeletedMessageId: Hashable {
 
 final class MessagesRemovedContext {
     private var messagesRemovedInteractively = Set<DeletedMessageId>()
+    private var messagesRemovedRemotely = Set<DeletedMessageId>()
     private var messagesRemovedInteractivelyLock = NSLock()
     
     func synchronouslyIsMessageDeletedInteractively(ids: [MessageId]) -> [EngineMessage.Id] {
@@ -85,6 +86,26 @@ final class MessagesRemovedContext {
         return result
     }
     
+    func synchronouslyIsMessageDeletedRemotely(ids: [MessageId]) -> [EngineMessage.Id] {
+        var result: [EngineMessage.Id] = []
+        
+        self.messagesRemovedInteractivelyLock.lock()
+        for id in ids {
+            let mappedId: DeletedMessageId
+            if id.peerId.namespace == Namespaces.Peer.CloudUser || id.peerId.namespace == Namespaces.Peer.CloudGroup {
+                mappedId = .global(id.id)
+            } else {
+                mappedId = .messageId(id)
+            }
+            if self.messagesRemovedRemotely.contains(mappedId) {
+                result.append(id)
+            }
+        }
+        self.messagesRemovedInteractivelyLock.unlock()
+        
+        return result
+    }
+    
     func addIsMessagesDeletedInteractively(ids: [DeletedMessageId]) {
         if ids.isEmpty {
             return
@@ -92,6 +113,16 @@ final class MessagesRemovedContext {
         
         self.messagesRemovedInteractivelyLock.lock()
         self.messagesRemovedInteractively.formUnion(ids)
+        self.messagesRemovedInteractivelyLock.unlock()
+    }
+    
+    func addIsMessagesDeletedRemotely(ids: [DeletedMessageId]) {
+        if ids.isEmpty {
+            return
+        }
+        
+        self.messagesRemovedInteractivelyLock.lock()
+        self.messagesRemovedRemotely.formUnion(ids)
         self.messagesRemovedInteractivelyLock.unlock()
     }
 }
@@ -285,6 +316,21 @@ public final class AccountStateManager {
         fileprivate let storyUpdatesPipe = ValuePipe<[InternalStoryUpdate]>()
         public var storyUpdates: Signal<[InternalStoryUpdate], NoError> {
             return self.storyUpdatesPipe.signal()
+        }
+        
+        fileprivate let botPreviewUpdatesPipe = ValuePipe<[InternalBotPreviewUpdate]>()
+        public var botPreviewUpdates: Signal<[InternalBotPreviewUpdate], NoError> {
+            return self.botPreviewUpdatesPipe.signal()
+        }
+        
+        fileprivate let forceSendPendingStarsReactionPipe = ValuePipe<MessageId>()
+        public var forceSendPendingStarsReaction: Signal<MessageId, NoError> {
+            return self.forceSendPendingStarsReactionPipe.signal()
+        }
+        
+        fileprivate let sentScheduledMessageIdsPipe = ValuePipe<Set<MessageId>>()
+        public var sentScheduledMessageIds: Signal<Set<MessageId>, NoError> {
+            return self.sentScheduledMessageIdsPipe.signal()
         }
         
         private var updatedWebpageContexts: [MediaId: UpdatedWebpageSubscriberContext] = [:]
@@ -680,6 +726,7 @@ public final class AccountStateManager {
                     
                     if let result = result, !result.deletedMessageIds.isEmpty {
                         messagesRemovedContext.addIsMessagesDeletedInteractively(ids: result.deletedMessageIds)
+                        messagesRemovedContext.addIsMessagesDeletedRemotely(ids: result.deletedMessageIds)
                     }
                     
                     return result
@@ -758,11 +805,16 @@ public final class AccountStateManager {
                 |> deliverOn(self.queue)
                 |> mapToSignal { [weak self] state, invalidatedChannels, disableParallelChannelReset -> Signal<(difference: Api.updates.Difference?, finalStatte: AccountReplayedFinalState?, skipBecauseOfError: Bool, resetState: Bool), NoError> in
                     if let state = state, let authorizedState = state.state {
-                        let flags: Int32
-                        let ptsTotalLimit: Int32?
+                        var flags: Int32 = 0
+                        var ptsTotalLimit: Int32?
                         
-                        flags = 1 << 0
-                        ptsTotalLimit = 1000
+                        if !"".isEmpty {
+                            flags |= 1 << 0
+                            ptsTotalLimit = 1000
+                        }
+                        
+                        flags = 0
+                        ptsTotalLimit = nil
                         
                         if let strongSelf = self {
                             if !invalidatedChannels.isEmpty {
@@ -820,6 +872,7 @@ public final class AccountStateManager {
                                                 if let replayedState = replayedState {
                                                     if !replayedState.deletedMessageIds.isEmpty {
                                                         messagesRemovedContext.addIsMessagesDeletedInteractively(ids: replayedState.deletedMessageIds)
+                                                        messagesRemovedContext.addIsMessagesDeletedRemotely(ids: replayedState.deletedMessageIds)
                                                     }
                                                     
                                                     return (difference, replayedState, false, false)
@@ -958,6 +1011,7 @@ public final class AccountStateManager {
                                 
                                 if let result = result, !result.deletedMessageIds.isEmpty {
                                     messagesRemovedContext.addIsMessagesDeletedInteractively(ids: result.deletedMessageIds)
+                                    messagesRemovedContext.addIsMessagesDeletedRemotely(ids: result.deletedMessageIds)
                                 }
                                 
                                 let deltaTime = CFAbsoluteTimeGetCurrent() - startTime
@@ -1064,6 +1118,9 @@ public final class AccountStateManager {
                             }
                             if !events.updatedIncomingThreadReadStates.isEmpty || !events.updatedOutgoingThreadReadStates.isEmpty {
                                 strongSelf.threadReadStateUpdatesPipe.putNext((events.updatedIncomingThreadReadStates, events.updatedOutgoingThreadReadStates))
+                            }
+                            if !events.sentScheduledMessageIds.isEmpty {
+                                strongSelf.sentScheduledMessageIdsPipe.putNext(events.sentScheduledMessageIds)
                             }
                             if !events.isContactUpdates.isEmpty {
                                 strongSelf.addIsContactUpdates(events.isContactUpdates)
@@ -1233,6 +1290,7 @@ public final class AccountStateManager {
                     
                     if let result = result, !result.deletedMessageIds.isEmpty {
                         messagesRemovedContext.addIsMessagesDeletedInteractively(ids: result.deletedMessageIds)
+                        messagesRemovedContext.addIsMessagesDeletedRemotely(ids: result.deletedMessageIds)
                     }
                     
                     return result
@@ -1281,6 +1339,7 @@ public final class AccountStateManager {
                 
                 if let result = result, !result.deletedMessageIds.isEmpty {
                     messagesRemovedContext.addIsMessagesDeletedInteractively(ids: result.deletedMessageIds)
+                    messagesRemovedContext.addIsMessagesDeletedRemotely(ids: result.deletedMessageIds)
                 }
                 
                 let deltaTime = CFAbsoluteTimeGetCurrent() - startTime
@@ -1373,6 +1432,7 @@ public final class AccountStateManager {
                                             
                                             if let replayedState = replayedState, !replayedState.deletedMessageIds.isEmpty {
                                                 messagesRemovedContext.addIsMessagesDeletedInteractively(ids: replayedState.deletedMessageIds)
+                                                messagesRemovedContext.addIsMessagesDeletedRemotely(ids: replayedState.deletedMessageIds)
                                             }
                                             
                                             let deltaTime = CFAbsoluteTimeGetCurrent() - startTime
@@ -1856,10 +1916,42 @@ public final class AccountStateManager {
         }
     }
     
+    var botPreviewUpdates: Signal<[InternalBotPreviewUpdate], NoError> {
+        return self.impl.signalWith { impl, subscriber in
+            return impl.botPreviewUpdates.start(next: subscriber.putNext, error: subscriber.putError, completed: subscriber.putCompletion)
+        }
+    }
+    
+    func injectBotPreviewUpdates(updates: [InternalBotPreviewUpdate]) {
+        self.impl.with { impl in
+            impl.botPreviewUpdatesPipe.putNext(updates)
+        }
+    }
+    
+    var forceSendPendingStarsReaction: Signal<MessageId, NoError> {
+        return self.impl.signalWith { impl, subscriber in
+            return impl.forceSendPendingStarsReaction.start(next: subscriber.putNext, error: subscriber.putError, completed: subscriber.putCompletion)
+        }
+    }
+    
+    public var sentScheduledMessageIds: Signal<Set<MessageId>, NoError> {
+        return self.impl.signalWith { impl, subscriber in
+            return impl.sentScheduledMessageIds.start(next: subscriber.putNext, error: subscriber.putError, completed: subscriber.putCompletion)
+        }
+    }
+    
+    func forceSendPendingStarsReaction(messageId: MessageId) {
+        self.impl.with { impl in
+            impl.forceSendPendingStarsReactionPipe.putNext(messageId)
+        }
+    }
+    
     var updateConfigRequested: (() -> Void)?
     var isPremiumUpdated: (() -> Void)?
     
     let messagesRemovedContext = MessagesRemovedContext()
+    
+    public weak var starsContext: StarsContext?
     
     init(
         accountPeerId: PeerId,
@@ -2086,6 +2178,10 @@ public final class AccountStateManager {
     
     public func synchronouslyIsMessageDeletedInteractively(ids: [EngineMessage.Id]) -> [EngineMessage.Id] {
         return self.messagesRemovedContext.synchronouslyIsMessageDeletedInteractively(ids: ids)
+    }
+    
+    public func synchronouslyIsMessageDeletedRemotely(ids: [EngineMessage.Id]) -> [EngineMessage.Id] {
+        return self.messagesRemovedContext.synchronouslyIsMessageDeletedRemotely(ids: ids)
     }
 }
 

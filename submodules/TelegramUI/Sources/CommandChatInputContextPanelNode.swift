@@ -156,7 +156,7 @@ private struct CommandChatInputContextPanelEntry: Comparable, Identifiable {
                     },
                     openPremiumIntro: {
                     },
-                    openPremiumGift: { _ in
+                    openPremiumGift: { _, _ in
                     },
                     openPremiumManagement: {
                     },
@@ -171,6 +171,8 @@ private struct CommandChatInputContextPanelEntry: Comparable, Identifiable {
                     hideChatFolderUpdates: {
                     },
                     openStories: { _, _ in
+                    },
+                    openStarsTopup: { _ in
                     },
                     dismissNotice: { _ in
                     },

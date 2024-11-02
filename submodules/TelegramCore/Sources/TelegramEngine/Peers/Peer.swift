@@ -462,6 +462,10 @@ public extension EnginePeer {
     var addressName: String? {
         return self._asPeer().addressName
     }
+    
+    var usernames: [TelegramPeerUsername] {
+        return self._asPeer().usernames
+    }
 
     var indexName: EnginePeer.IndexName {
         return EnginePeer.IndexName(self._asPeer().indexName)
@@ -510,10 +514,17 @@ public extension EnginePeer {
     var isPremium: Bool {
         return self._asPeer().isPremium
     }
+    
+    var isSubscription: Bool {
+        return self._asPeer().isSubscription
+    }
 
     var isService: Bool {
         if case let .user(peer) = self {
             if peer.id.isReplies {
+                return true
+            }
+            if peer.id.isVerificationCodes {
                 return true
             }
             return (peer.id.namespace == Namespaces.Peer.CloudUser && (peer.id.id._internalGetInt64Value() == 777000 || peer.id.id._internalGetInt64Value() == 333000))

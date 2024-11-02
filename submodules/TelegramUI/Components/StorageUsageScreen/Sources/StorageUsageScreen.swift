@@ -865,6 +865,28 @@ final class StorageUsageScreenComponent: Component {
             self.keepScreenActiveDisposable?.dispose()
         }
         
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard let result = super.hitTest(point, with: event) else {
+                return nil
+            }
+            var currentParent: UIView? = result
+            while true {
+                if currentParent == nil || currentParent === self {
+                    break
+                }
+                if let scrollView = currentParent as? UIScrollView {
+                    if scrollView === self.scrollView {
+                        break
+                    }
+                    if scrollView.isDecelerating && scrollView.contentOffset.y < -scrollView.contentInset.top {
+                        return self.scrollView
+                    }
+                }
+                currentParent = currentParent?.superview
+            }
+            return result
+        }
+        
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             self.enableVelocityTracking = true
         }
@@ -2571,7 +2593,7 @@ final class StorageUsageScreenComponent: Component {
                             navigationController: navigationController,
                             context: component.context,
                             chatLocation: chatLocation,
-                            subject: .message(id: .id(message.id), highlight: ChatControllerSubject.MessageHighlight(quote: nil), timecode: nil),
+                            subject: .message(id: .id(message.id), highlight: ChatControllerSubject.MessageHighlight(quote: nil), timecode: nil, setupReply: false),
                             keepStack: .always
                         ))
                     })
@@ -2674,7 +2696,7 @@ final class StorageUsageScreenComponent: Component {
                             navigationController: navigationController,
                             context: component.context,
                             chatLocation: chatLocation,
-                            subject: .message(id: .id(message.id), highlight: ChatControllerSubject.MessageHighlight(quote: nil), timecode: nil),
+                            subject: .message(id: .id(message.id), highlight: ChatControllerSubject.MessageHighlight(quote: nil), timecode: nil, setupReply: false),
                             keepStack: .always
                         ))
                     })
@@ -2733,7 +2755,8 @@ final class StorageUsageScreenComponent: Component {
                 navigationController: navigationController,
                 dismissInput: { [weak self] in
                     self?.endEditing(true)
-                }, present: { [weak self] c, a in
+                },
+                present: { [weak self] c, a, _ in
                     guard let self else {
                         return
                     }
@@ -2805,6 +2828,7 @@ final class StorageUsageScreenComponent: Component {
                     }
                     let _ = self
                 }, openBotCommand: { _ in
+                }, openAd: { _ in
                 }, addContact: { _ in
                 }, storeMediaPlaybackState: { [weak self] messageId, timestamp, playbackRate in
                     guard let self else {

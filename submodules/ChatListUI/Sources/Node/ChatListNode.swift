@@ -101,7 +101,7 @@ public final class ChatListNodeInteraction {
     let openStorageManagement: () -> Void
     let openPasswordSetup: () -> Void
     let openPremiumIntro: () -> Void
-    let openPremiumGift: ([EnginePeer.Id: TelegramBirthday]?) -> Void
+    let openPremiumGift: ([EnginePeer], [EnginePeer.Id: TelegramBirthday]?) -> Void
     let openPremiumManagement: () -> Void
     let openActiveSessions: () -> Void
     let openBirthdaySetup: () -> Void
@@ -109,6 +109,7 @@ public final class ChatListNodeInteraction {
     let openChatFolderUpdates: () -> Void
     let hideChatFolderUpdates: () -> Void
     let openStories: (ChatListNode.OpenStoriesSubject, ASDisplayNode?) -> Void
+    let openStarsTopup: (Int64?) -> Void
     let dismissNotice: (ChatListNotice) -> Void
     let editPeer: (ChatListItem) -> Void
     
@@ -156,7 +157,7 @@ public final class ChatListNodeInteraction {
         openStorageManagement: @escaping () -> Void,
         openPasswordSetup: @escaping () -> Void,
         openPremiumIntro: @escaping () -> Void,
-        openPremiumGift: @escaping ([EnginePeer.Id: TelegramBirthday]?) -> Void,
+        openPremiumGift: @escaping ([EnginePeer], [EnginePeer.Id: TelegramBirthday]?) -> Void,
         openPremiumManagement: @escaping () -> Void,
         openActiveSessions: @escaping () -> Void,
         openBirthdaySetup: @escaping () -> Void,
@@ -164,6 +165,7 @@ public final class ChatListNodeInteraction {
         openChatFolderUpdates: @escaping () -> Void,
         hideChatFolderUpdates: @escaping () -> Void,
         openStories: @escaping (ChatListNode.OpenStoriesSubject, ASDisplayNode?) -> Void,
+        openStarsTopup: @escaping (Int64?) -> Void,
         dismissNotice: @escaping (ChatListNotice) -> Void,
         editPeer: @escaping (ChatListItem) -> Void
     ) {
@@ -206,6 +208,7 @@ public final class ChatListNodeInteraction {
         self.openChatFolderUpdates = openChatFolderUpdates
         self.hideChatFolderUpdates = hideChatFolderUpdates
         self.openStories = openStories
+        self.openStarsTopup = openStarsTopup
         self.dismissNotice = dismissNotice
         self.editPeer = editPeer
     }
@@ -738,15 +741,17 @@ private func mappedInsertEntries(context: AccountContext, nodeInteraction: ChatL
                         case .premiumUpgrade, .premiumAnnualDiscount, .premiumRestore:
                             nodeInteraction?.openPremiumIntro()
                         case .xmasPremiumGift:
-                            nodeInteraction?.openPremiumGift(nil)
+                            nodeInteraction?.openPremiumGift([], nil)
                         case .premiumGrace:
                             nodeInteraction?.openPremiumManagement()
                         case .setupBirthday:
                             nodeInteraction?.openBirthdaySetup()
-                        case let .birthdayPremiumGift(_, birthdays):
-                            nodeInteraction?.openPremiumGift(birthdays)
+                        case let .birthdayPremiumGift(peers, birthdays):
+                            nodeInteraction?.openPremiumGift(peers, birthdays)
                         case .reviewLogin:
                             break
+                        case let .starsSubscriptionLowBalance(amount, _):
+                            nodeInteraction?.openStarsTopup(amount)
                         }
                     case .hide:
                         nodeInteraction?.dismissNotice(notice)
@@ -1076,15 +1081,17 @@ private func mappedUpdateEntries(context: AccountContext, nodeInteraction: ChatL
                         case .premiumUpgrade, .premiumAnnualDiscount, .premiumRestore:
                             nodeInteraction?.openPremiumIntro()
                         case .xmasPremiumGift:
-                            nodeInteraction?.openPremiumGift(nil)
+                            nodeInteraction?.openPremiumGift([], nil)
                         case .premiumGrace:
                             nodeInteraction?.openPremiumManagement()
                         case .setupBirthday:
                             nodeInteraction?.openBirthdaySetup()
-                        case let .birthdayPremiumGift(_, birthdays):
-                            nodeInteraction?.openPremiumGift(birthdays)
+                        case let .birthdayPremiumGift(peers, birthdays):
+                            nodeInteraction?.openPremiumGift(peers, birthdays)
                         case .reviewLogin:
                             break
+                        case let .starsSubscriptionLowBalance(amount, _):
+                            nodeInteraction?.openStarsTopup(amount)
                         }
                     case .hide:
                         nodeInteraction?.dismissNotice(notice)
@@ -1204,6 +1211,7 @@ public final class ChatListNode: ListView {
     public var openStories: ((ChatListNode.OpenStoriesSubject, ASDisplayNode?) -> Void)?
     public var openBirthdaySetup: (() -> Void)?
     public var openPremiumManagement: (() -> Void)?
+    public var openStarsTopup: ((Int64?) -> Void)?
     
     private var theme: PresentationTheme
     
@@ -1702,13 +1710,24 @@ public final class ChatListNode: ListView {
             }
             let controller = self.context.sharedContext.makePremiumIntroController(context: self.context, source: .ads, forceDark: false, dismissed: nil)
             self.push?(controller)
-        }, openPremiumGift: { [weak self] birthdays in
+        }, openPremiumGift: { [weak self] peers, birthdays in
             guard let self else {
                 return
             }
-            let controller = self.context.sharedContext.makePremiumGiftController(context: self.context, source: .chatList(birthdays), completion: nil)
-            controller.navigationPresentation = .modal
-            self.push?(controller)
+            if peers.count == 1, let peerId = peers.first?.id {
+                let _ = (self.context.engine.payments.premiumGiftCodeOptions(peerId: nil, onlyCached: true)
+                |> filter { !$0.isEmpty }
+                |> deliverOnMainQueue).start(next: { giftOptions in
+                    let premiumOptions = giftOptions.filter { $0.users == 1 }.map { CachedPremiumGiftOption(months: $0.months, currency: $0.currency, amount: $0.amount, botUrl: "", storeProductId: $0.storeProductId) }
+                    let controller = self.context.sharedContext.makeGiftOptionsController(context: self.context, peerId: peerId, premiumOptions: premiumOptions)
+                    controller.navigationPresentation = .modal
+                    self.push?(controller)
+                })
+            } else {
+                let controller = self.context.sharedContext.makePremiumGiftController(context: self.context, source: .chatList(birthdays), completion: nil)
+                controller.navigationPresentation = .modal
+                self.push?(controller)
+            }
         }, openPremiumManagement: { [weak self] in
             guard let self else {
                 return
@@ -1805,6 +1824,11 @@ public final class ChatListNode: ListView {
                 return
             }
             self.openStories?(subject, itemNode)
+        }, openStarsTopup: { [weak self] amount in
+            guard let self else {
+                return
+            }
+            self.openStarsTopup?(amount)
         }, dismissNotice: { [weak self] notice in
             guard let self else {
                 return
@@ -1906,6 +1930,8 @@ public final class ChatListNode: ListView {
         } else {
             displayArchiveIntro = .single(false)
         }
+        
+        let starsSubscriptionsContextPromise = Promise<StarsSubscriptionsContext?>(nil)
     
         self.updateIsMainTabDisposable = (self.isMainTab.get()
         |> deliverOnMainQueue).startStrict(next: { [weak self] isMainTab in
@@ -1928,9 +1954,10 @@ public final class ChatListNode: ListView {
                 twoStepData,
                 newSessionReviews(postbox: context.account.postbox),
                 context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Birthday(id: context.account.peerId)),
-                context.account.stateManager.contactBirthdays
+                context.account.stateManager.contactBirthdays,
+                starsSubscriptionsContextPromise.get()
             )
-            |> mapToSignal { suggestions, dismissedSuggestions, configuration, newSessionReviews, birthday, birthdays -> Signal<ChatListNotice?, NoError> in
+            |> mapToSignal { suggestions, dismissedSuggestions, configuration, newSessionReviews, birthday, birthdays, starsSubscriptionsContext -> Signal<ChatListNotice?, NoError> in
                 if let newSessionReview = newSessionReviews.first {
                     return .single(.reviewLogin(newSessionReview: newSessionReview, totalCount: newSessionReviews.count))
                 }
@@ -1964,7 +1991,24 @@ public final class ChatListNode: ListView {
                     todayBirthdayPeerIds = []
                 }
                 
-                if suggestions.contains(.gracePremium) {
+                if suggestions.contains(.starsSubscriptionLowBalance) {
+                    if let starsSubscriptionsContext {
+                        return starsSubscriptionsContext.state
+                        |> map { state in
+                            if state.balance > 0 && !state.subscriptions.isEmpty {
+                                return .starsSubscriptionLowBalance(
+                                    amount: state.balance,
+                                    peers: state.subscriptions.map { $0.peer }
+                                )
+                            } else {
+                                return nil
+                            }
+                        }
+                    } else {
+                        starsSubscriptionsContextPromise.set(.single(context.engine.payments.peerStarsSubscriptionsContext(starsContext: nil, missingBalance: true)))
+                        return .single(nil)
+                    }
+                } else if suggestions.contains(.gracePremium) {
                     return .single(.premiumGrace)
                 } else if suggestions.contains(.setupBirthday) && birthday == nil {
                     return .single(.setupBirthday)
@@ -2265,7 +2309,7 @@ public final class ChatListNode: ListView {
                         guard !filter.contains(.onlyPrivateChats) || peer.peerId.namespace == Namespaces.Peer.CloudUser else { return false }
                         
                         if let peer = peer.peer {
-                            if peer.id.isReplies {
+                            if peer.id.isRepliesOrVerificationCodes {
                                 return false
                             }
                             
@@ -4216,7 +4260,7 @@ private func statusStringForPeerType(accountPeerId: EnginePeer.Id, strings: Pres
         }
     }
     
-    if peer.id.isReplies {
+    if peer.id.isReplies || peer.id.isVerificationCodes {
         return nil
     } else if case let .user(user) = peer {
         if user.botInfo != nil || user.flags.contains(.isSupport) {
