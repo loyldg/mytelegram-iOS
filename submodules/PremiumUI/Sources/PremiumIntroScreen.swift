@@ -3218,6 +3218,7 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
             if case .business = context.component.mode {
                 header = coin.update(
                     component: PremiumCoinComponent(
+                        mode: .business,
                         isIntro: isIntro,
                         isVisible: starIsVisible,
                         hasIdleAnimations: state.hasIdleAnimations
@@ -3416,7 +3417,7 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
                                         loadedPack = .result(info: info, items: items, installed: updatedInstalled ?? installed)
                                     }
                                     
-                                    let controller = accountContext.sharedContext.makeStickerPackScreen(context: accountContext, updatedPresentationData: nil, mainStickerPack: packReference, stickerPacks: [packReference], loadedStickerPacks: loadedPack.flatMap { [$0] } ?? [], isEditing: false, expandIfNeeded: false, parentNavigationController: navigationController, sendSticker: { _, _, _ in
+                                    let controller = accountContext.sharedContext.makeStickerPackScreen(context: accountContext, updatedPresentationData: nil, mainStickerPack: packReference, stickerPacks: [packReference], loadedStickerPacks: loadedPack.flatMap { [$0] } ?? [], actionTitle: nil, isEditing: false, expandIfNeeded: false, parentNavigationController: navigationController, sendSticker: { _, _, _ in
                                         return false
                                     }, actionPerformed: { added in
                                         updatedInstalled = added
@@ -3767,7 +3768,7 @@ public final class PremiumIntroScreen: ViewControllerComponentContainer {
             self.dismissAllTooltips()
             
             let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-            self.present(UndoOverlayController(presentationData: presentationData, content: .linkCopied(text: presentationData.strings.Conversation_LinkCopied), elevatedLayout: false, position: .top, action: { _ in return true }), in: .current)
+            self.present(UndoOverlayController(presentationData: presentationData, content: .linkCopied(title: nil, text: presentationData.strings.Conversation_LinkCopied), elevatedLayout: false, position: .top, action: { _ in return true }), in: .current)
         }
         
         shareLinkImpl = { [weak self] link in
