@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import UIKit
 import Display
 import AsyncDisplayKit
@@ -44,6 +45,7 @@ import TelegramNotices
 import AnimatedCountLabelNode
 import TelegramStringFormatting
 import TextNodeWithEntities
+import DeviceModel
 
 private let accessoryButtonFont = Font.medium(14.0)
 private let counterFont = Font.with(size: 14.0, design: .regular, traits: [.monospacedNumbers])
@@ -537,6 +539,7 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
     var customEmojiContainerView: CustomEmojiContainerView?
     
     let textInputBackgroundNode: ASImageNode
+    var textInputBackgroundTapRecognizer: TouchDownGestureRecognizer?
     private var transparentTextInputBackgroundImage: UIImage?
     let actionButtons: ChatTextInputActionButtonsNode
     private let slowModeButton: BoostSlowModeButton
@@ -1087,6 +1090,7 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                 return false
             }
         }
+        self.textInputBackgroundTapRecognizer = recognizer
         self.textInputBackgroundNode.isUserInteractionEnabled = true
         self.textInputBackgroundNode.view.addGestureRecognizer(recognizer)
         
@@ -1163,6 +1167,11 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
         textInputNode.view.disablesInteractiveTransitionGestureRecognizer = true
         textInputNode.isUserInteractionEnabled = !self.sendingTextDisabled
         self.textInputNode = textInputNode
+        
+        if let textInputBackgroundTapRecognizer = self.textInputBackgroundTapRecognizer {
+            self.textInputBackgroundTapRecognizer = nil
+            self.textInputBackgroundNode.view.removeGestureRecognizer(textInputBackgroundTapRecognizer)
+        }
         
         var accessoryButtonsWidth: CGFloat = 0.0
         var firstButton = true
@@ -1558,6 +1567,8 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                 break
             case .businessLinkSetup:
                 displayMediaButton = false
+            case .postSuggestions:
+                break
             }
         }
         
@@ -1944,6 +1955,10 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                         }
                     case .businessLinkSetup:
                         placeholder = interfaceState.strings.Chat_Placeholder_BusinessLinkPreset
+                    case let .postSuggestions(postSuggestions):
+                        //TODO:localize
+                        placeholder = "Suggest for # \(postSuggestions)"
+                        placeholderHasStar = true
                     }
                 }
 
@@ -1971,6 +1986,8 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                         break
                     case .businessLinkSetup:
                         sendButtonHasApplyIcon = true
+                    case .postSuggestions:
+                        break
                     }
                 }
             }
@@ -2493,8 +2510,17 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
         var actionButtonsSize = CGSize(width: 44.0, height: minimalHeight)
         if let presentationInterfaceState = self.presentationInterfaceState {
             var showTitle = false
-            if let _ = presentationInterfaceState.sendPaidMessageStars, !self.actionButtons.sendContainerNode.alpha.isZero {
-                showTitle = true
+            if !self.actionButtons.sendContainerNode.alpha.isZero {
+                if let _ = presentationInterfaceState.sendPaidMessageStars {
+                    showTitle = true
+                } else if case let .customChatContents(customChatContents) = interfaceState.subject {
+                    switch customChatContents.kind {
+                    case .postSuggestions:
+                        showTitle = true
+                    default:
+                        break
+                    }
+                }
             }
             actionButtonsSize = self.actionButtons.updateLayout(size: CGSize(width: 44.0, height: minimalHeight), isMediaInputExpanded: isMediaInputExpanded, showTitle: showTitle, currentMessageEffectId: presentationInterfaceState.interfaceState.sendMessageEffect, transition: transition, interfaceState: presentationInterfaceState)
         }
@@ -3768,6 +3794,8 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                     break
                 case .businessLinkSetup:
                     keepSendButtonEnabled = true
+                case .postSuggestions:
+                    break
                 }
             }
         }
@@ -3888,6 +3916,8 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                     break
                 case .businessLinkSetup:
                     hideMicButton = true
+                case .postSuggestions:
+                    break
                 }
             }
         }
@@ -3993,6 +4023,8 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                     break
                 case .businessLinkSetup:
                     sendButtonHasApplyIcon = true
+                case .postSuggestions:
+                    break
                 }
             }
             
@@ -4450,10 +4482,14 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
         var attributedString: NSAttributedString?
         if let data = pasteboard.data(forPasteboardType: "private.telegramtext"), let value = chatInputStateStringFromAppSpecificString(data: data) {
             attributedString = value
-        } else if let data = pasteboard.data(forPasteboardType: kUTTypeRTF as String) {
+        } else if let data = pasteboard.data(forPasteboardType: "public.rtf") {
             attributedString = chatInputStateStringFromRTF(data, type: NSAttributedString.DocumentType.rtf)
         } else if let data = pasteboard.data(forPasteboardType: "com.apple.flat-rtfd") {
-            attributedString = chatInputStateStringFromRTF(data, type: NSAttributedString.DocumentType.rtfd)
+            if let _ = pasteboard.data(forPasteboardType: "com.apple.notes.richtext"), DeviceModel.current.isIpad, let htmlData = pasteboard.data(forPasteboardType: "public.html") {
+                attributedString = chatInputStateStringFromRTF(htmlData, type: NSAttributedString.DocumentType.html)
+            } else {
+                attributedString = chatInputStateStringFromRTF(data, type: NSAttributedString.DocumentType.rtfd)
+            }
         }
         
         if let attributedString = attributedString {

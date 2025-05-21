@@ -81,7 +81,9 @@ import AccountFreezeInfoScreen
 import JoinSubjectScreen
 import OldChannelsController
 import InviteLinksUI
+import GiftStoreScreen
 import SendInviteLinkScreen
+import PostSuggestionsSettingsScreen
 
 private final class AccountUserInterfaceInUseContext {
     let subscribers = Bag<(Bool) -> Void>()
@@ -131,7 +133,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         }
     }
     
-    private let navigateToChatImpl: (AccountRecordId, PeerId, MessageId?) -> Void
+    private let navigateToChatImpl: (AccountRecordId, PeerId, MessageId?, Bool) -> Void
     
     private let apsNotificationToken: Signal<Data?, NoError>
     private let voipNotificationToken: Signal<Data?, NoError>
@@ -266,7 +268,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
     
     private let energyUsageAutomaticDisposable = MetaDisposable()
     
-    init(mainWindow: Window1?, sharedContainerPath: String, basePath: String, encryptionParameters: ValueBoxEncryptionParameters, accountManager: AccountManager<TelegramAccountManagerTypes>, appLockContext: AppLockContext, notificationController: NotificationContainerController?, applicationBindings: TelegramApplicationBindings, initialPresentationDataAndSettings: InitialPresentationDataAndSettings, networkArguments: NetworkInitializationArguments, hasInAppPurchases: Bool, rootPath: String, legacyBasePath: String?, apsNotificationToken: Signal<Data?, NoError>, voipNotificationToken: Signal<Data?, NoError>, firebaseSecretStream: Signal<[String: String], NoError>, setNotificationCall: @escaping (PresentationCall?) -> Void, navigateToChat: @escaping (AccountRecordId, PeerId, MessageId?) -> Void, displayUpgradeProgress: @escaping (Float?) -> Void = { _ in }, appDelegate: AppDelegate?) {
+    init(mainWindow: Window1?, sharedContainerPath: String, basePath: String, encryptionParameters: ValueBoxEncryptionParameters, accountManager: AccountManager<TelegramAccountManagerTypes>, appLockContext: AppLockContext, notificationController: NotificationContainerController?, applicationBindings: TelegramApplicationBindings, initialPresentationDataAndSettings: InitialPresentationDataAndSettings, networkArguments: NetworkInitializationArguments, hasInAppPurchases: Bool, rootPath: String, legacyBasePath: String?, apsNotificationToken: Signal<Data?, NoError>, voipNotificationToken: Signal<Data?, NoError>, firebaseSecretStream: Signal<[String: String], NoError>, setNotificationCall: @escaping (PresentationCall?) -> Void, navigateToChat: @escaping (AccountRecordId, PeerId, MessageId?, Bool) -> Void, displayUpgradeProgress: @escaping (Float?) -> Void = { _ in }, appDelegate: AppDelegate?) {
         assert(Queue.mainQueue().isCurrent())
         
         precondition(!testHasInstance)
@@ -1758,7 +1760,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
     }
     
     public func navigateToChat(accountId: AccountRecordId, peerId: PeerId, messageId: MessageId?) {
-        self.navigateToChatImpl(accountId, peerId, messageId)
+        self.navigateToChatImpl(accountId, peerId, messageId, true)
     }
     
     public func messageFromPreloadedChatHistoryViewForLocation(id: MessageId, location: ChatHistoryLocationInput, context: AccountContext, chatLocation: ChatLocation, subject: ChatControllerSubject?, chatLocationContextHolder: Atomic<ChatLocationContextHolder?>, tag: HistoryViewInputTag?) -> Signal<(MessageIndex?, Bool), NoError> {
@@ -2048,7 +2050,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             }
             
             let openCall: () -> Void = {
-                context.sharedContext.callManager?.joinConferenceCall(
+                let _ = context.sharedContext.callManager?.joinConferenceCall(
                     accountContext: context,
                     initialCall: EngineGroupCallDescription(
                         id: call.callInfo.id,
@@ -2060,7 +2062,8 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                     ),
                     reference: .id(id: call.callInfo.id, accessHash: call.callInfo.accessHash),
                     beginWithVideo: isVideo,
-                    invitePeerIds: peerIds
+                    invitePeerIds: peerIds,
+                    endCurrentIfAny: true
                 )
                 completion?()
             }
@@ -2800,6 +2803,8 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             mappedSubject = .channels
         case .expiringStories:
             mappedSubject = .expiringStories
+        case .multiStories:
+            mappedSubject = .multiStories
         case .storiesWeekly:
             mappedSubject = .storiesWeekly
         case .storiesMonthly:
@@ -2853,7 +2858,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             guard let controller else {
                 return
             }
-            let _ = context.engine.notices.dismissServerProvidedSuggestion(suggestion: .setupBirthday).startStandalone()
+            let _ = context.engine.notices.dismissServerProvidedSuggestion(suggestion: ServerProvidedSuggestion.setupBirthday.id).startStandalone()
                     
             let settingsPromise: Promise<AccountPrivacySettings?>
             if let rootController = context.sharedContext.mainWindow?.viewController as? TelegramRootControllerInterface, let current = rootController.getPrivacySettings() {
@@ -2985,11 +2990,11 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         ))
         controller.navigationPresentation = .modal
         
-        let _ = combineLatest(
+        let _ = (combineLatest(
             queue: Queue.mainQueue(),
             controller.result,
-            options.get()
-        ).startStandalone(next: { [weak controller] result, options in
+            options.get() |> distinctUntilChanged
+        )).startStandalone(next: { [weak controller] result, options in
             if let (peers, _, _, _, _, _) = result, let contactPeer = peers.first, case let .peer(peer, _, _) = contactPeer, let starsContext = context.starsContext {
                 if case .starGiftTransfer = source {
                     presentTransferAlertImpl?(EnginePeer(peer))
@@ -3044,7 +3049,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             guard let controller else {
                 return
             }
-            let _ = context.engine.notices.dismissServerProvidedSuggestion(suggestion: .setupBirthday).startStandalone()
+            let _ = context.engine.notices.dismissServerProvidedSuggestion(suggestion: ServerProvidedSuggestion.setupBirthday.id).startStandalone()
                     
             let settingsPromise: Promise<AccountPrivacySettings?>
             if let rootController = context.sharedContext.mainWindow?.viewController as? TelegramRootControllerInterface, let current = rootController.getPrivacySettings() {
@@ -3268,6 +3273,14 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         return controller
     }
     
+    public func makeGiftStoreController(context: AccountContext, peerId: EnginePeer.Id, gift: StarGift.Gift) -> ViewController {
+        guard let starsContext = context.starsContext else {
+            fatalError()
+        }
+        let controller = GiftStoreScreen(context: context, starsContext: starsContext, peerId: peerId, gift: gift)
+        return controller
+    }
+    
     public func makePremiumPrivacyControllerController(context: AccountContext, subject: PremiumPrivacySubject, peerId: EnginePeer.Id) -> ViewController {
         let mappedSubject: PremiumPrivacyScreen.Subject
         let introSource: PremiumIntroSource
@@ -3451,9 +3464,9 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                     )
                 }
                 return nil
-            }, completion: { result, commit in
-                completion(result, commit)
-            } as (MediaEditorScreenImpl.Result, @escaping (@escaping () -> Void) -> Void) -> Void
+            }, completion: { results, commit in
+                completion(results.first!, commit)
+            } as ([MediaEditorScreenImpl.Result], @escaping (@escaping () -> Void) -> Void) -> Void
         )
         editorController.cancelled = { _ in
             cancelled()
@@ -3515,13 +3528,13 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                     )
                 }
                 return nil
-            }, completion: { result, commit in
-                if case let .sticker(file, emoji) = result.media {
+            }, completion: { results, commit in
+                if case let .sticker(file, emoji) = results.first?.media {
                     completion(file, emoji, {
                         commit({})
                     })
                 }
-            } as (MediaEditorScreenImpl.Result, @escaping (@escaping () -> Void) -> Void) -> Void
+            } as ([MediaEditorScreenImpl.Result], @escaping (@escaping () -> Void) -> Void) -> Void
         )
         editorController.cancelled = { _ in
             cancelled()
@@ -3540,7 +3553,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         }
         let editorController = MediaEditorScreenImpl(
             context: context,
-            mode: .storyEditor,
+            mode: .storyEditor(remainingCount: 1),
             subject: subject,
             customTarget: nil,
             initialCaption: text.flatMap { NSAttributedString(string: $0) },
@@ -3548,13 +3561,10 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             transitionIn: nil,
             transitionOut: { finished, isNew in
                 return nil
-            }, completion: { result, commit in
-                completion(result, commit)
-            } as (MediaEditorScreenImpl.Result, @escaping (@escaping () -> Void) -> Void) -> Void
+            }, completion: { results, commit in
+                completion(results.first!, commit)
+            } as ([MediaEditorScreenImpl.Result], @escaping (@escaping () -> Void) -> Void) -> Void
         )
-//        editorController.cancelled = { _ in
-//            cancelled()
-//        }
         return editorController
     }
     
@@ -3562,7 +3572,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         return mediaPickerController(context: context, hasSearch: hasSearch, completion: completion)
     }
     
-    public func makeStoryMediaPickerScreen(context: AccountContext, isDark: Bool, forCollage: Bool, selectionLimit: Int?, getSourceRect: @escaping () -> CGRect, completion: @escaping (Any, UIView, CGRect, UIImage?, @escaping (Bool?) -> (UIView, CGRect)?, @escaping () -> Void) -> Void, multipleCompletion: @escaping ([Any]) -> Void, dismissed: @escaping () -> Void, groupsPresented: @escaping () -> Void) -> ViewController {
+    public func makeStoryMediaPickerScreen(context: AccountContext, isDark: Bool, forCollage: Bool, selectionLimit: Int?, getSourceRect: @escaping () -> CGRect, completion: @escaping (Any, UIView, CGRect, UIImage?, @escaping (Bool?) -> (UIView, CGRect)?, @escaping () -> Void) -> Void, multipleCompletion: @escaping ([Any], Bool) -> Void, dismissed: @escaping () -> Void, groupsPresented: @escaping () -> Void) -> ViewController {
         return storyMediaPickerController(context: context, isDark: isDark, forCollage: forCollage, selectionLimit: selectionLimit, getSourceRect: getSourceRect, completion: completion, multipleCompletion: multipleCompletion, dismissed: dismissed, groupsPresented: groupsPresented)
     }
     
@@ -3653,8 +3663,19 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         return StarsWithdrawScreen(context: context, mode: .withdraw(stats), completion: completion)
     }
     
-    public func makeStarsWithdrawalScreen(context: AccountContext, completion: @escaping (Int64) -> Void) -> ViewController {
-        return StarsWithdrawScreen(context: context, mode: .accountWithdraw, completion: completion)
+    public func makeStarsWithdrawalScreen(context: AccountContext, subject: StarsWithdrawalScreenSubject, completion: @escaping (Int64) -> Void) -> ViewController {
+        let mode: StarsWithdrawScreen.Mode
+        switch subject {
+        case .withdraw:
+            mode = .accountWithdraw
+        case let .enterAmount(current, minValue, fractionAfterCommission, kind):
+            mode = .paidMessages(current: current.value, minValue: minValue.value, fractionAfterCommission: fractionAfterCommission, kind: kind)
+        }
+        return StarsWithdrawScreen(context: context, mode: mode, completion: completion)
+    }
+    
+    public func makeStarGiftResellScreen(context: AccountContext, update: Bool, completion: @escaping (Int64) -> Void) -> ViewController {
+        return StarsWithdrawScreen(context: context, mode: .starGiftResell(update), completion: completion)
     }
     
     public func makeStarsGiftScreen(context: AccountContext, message: EngineMessage) -> ViewController {
@@ -3674,7 +3695,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
     }
     
     public func makeGiftViewScreen(context: AccountContext, gift: StarGift.UniqueGift, shareStory: ((StarGift.UniqueGift) -> Void)?, dismissed: (() -> Void)?) -> ViewController {
-        let controller = GiftViewScreen(context: context, subject: .uniqueGift(gift), shareStory: shareStory)
+        let controller = GiftViewScreen(context: context, subject: .uniqueGift(gift, nil), shareStory: shareStory)
         controller.disposed = {
             dismissed?()
         }
@@ -3704,13 +3725,16 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
         let controller = MediaEditorScreenImpl(
             context: context,
-            mode: .storyEditor,
+            mode: .storyEditor(remainingCount: 1),
             subject: editorSubject,
             transitionIn: nil,
             transitionOut: { _, _ in
                 return nil
             },
-            completion: { [weak parentController] result, commit in
+            completion: { [weak parentController] results, commit in
+                guard let result = results.first else {
+                    return
+                }
                 let targetPeerId: EnginePeer.Id
                 let target: Stories.PendingTarget
                 if let sendAsPeerId = result.options.sendAsPeerId {
@@ -3723,7 +3747,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 externalState.storyTarget = target
                 
                 if let rootController = context.sharedContext.mainWindow?.viewController as? TelegramRootControllerInterface {
-                    rootController.proceedWithStoryUpload(target: target, result: result, existingMedia: nil, forwardInfo: nil, externalState: externalState, commit: commit)
+                    rootController.proceedWithStoryUpload(target: target, results: [result], existingMedia: nil, forwardInfo: nil, externalState: externalState, commit: commit)
                 }
                 
                 let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: targetPeerId))
@@ -3823,6 +3847,10 @@ public final class SharedAccountContextImpl: SharedAccountContext {
 
     public func makeSendInviteLinkScreen(context: AccountContext, subject: SendInviteLinkScreenSubject, peers: [TelegramForbiddenInvitePeer], theme: PresentationTheme?) -> ViewController {
         return SendInviteLinkScreen(context: context, subject: subject, peers: peers, theme: theme)
+    }
+    
+    public func makePostSuggestionsSettingsScreen(context: AccountContext) -> ViewController {
+        return PostSuggestionsSettingsScreen(context: context, completion: {})
     }
 }
 
