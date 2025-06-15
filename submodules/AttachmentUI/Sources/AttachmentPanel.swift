@@ -476,6 +476,7 @@ private final class MainButtonNode: HighlightTrackingButtonNode {
     private var size: CGSize?
     
     private let backgroundAnimationNode: ASImageNode
+    private var iconNode: ASImageNode?
     fileprivate let textNode: ImmediateTextNode
     private var badgeNode: BadgeNode?
     private let statusNode: SemanticStatusNode
@@ -781,6 +782,26 @@ private final class MainButtonNode: HighlightTrackingButtonNode {
             badgeNode.removeFromSupernode()
         }
         
+        if let iconName = state.iconName {
+            let iconNode: ASImageNode
+            if let current = self.iconNode {
+                iconNode = current
+            } else {
+                iconNode = ASImageNode()
+                iconNode.displaysAsynchronously = false
+                iconNode.image = generateTintedImage(image: UIImage(bundleImageName: iconName), color: state.textColor)
+                self.iconNode = iconNode
+                self.addSubnode(iconNode)
+            }
+            if let iconSize = iconNode.image?.size {
+                textFrame.origin.x += (iconSize.width + 6.0) / 2.0
+                iconNode.frame = CGRect(origin: CGPoint(x: textFrame.minX - iconSize.width - 6.0, y: textFrame.minY + floorToScreenPixels((textFrame.height - iconSize.height) * 0.5)), size: iconSize)
+            }
+        } else if let iconNode = self.iconNode {
+            self.iconNode = nil
+            iconNode.removeFromSupernode()
+        }
+        
         if self.textNode.frame.width.isZero {
             self.textNode.frame = textFrame
         } else {
@@ -795,7 +816,7 @@ private final class MainButtonNode: HighlightTrackingButtonNode {
                 self.transitionFromProgress()
             }
         }
-        
+                
         if let shimmerView = self.shimmerView, let borderView = self.borderView, let borderMaskView = self.borderMaskView, let borderShimmerView = self.borderShimmerView {
             let buttonFrame = CGRect(origin: .zero, size: size)
             let buttonWidth = size.width
@@ -1064,7 +1085,6 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
                 })
                 strongSelf.present(controller)
             }
-        }, reportPeerIrrelevantGeoLocation: {
         }, displaySlowmodeTooltip: { _, _ in
         }, displaySendMessageOptions: { [weak self] node, gesture in
             guard let strongSelf = self, let textInputPanelNode = strongSelf.textInputPanelNode else {
@@ -1171,7 +1191,8 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
                             canMakePaidContent: canMakePaidContent,
                             currentPrice: currentPrice,
                             hasTimers: hasTimers,
-                            sendPaidMessageStars: strongSelf.presentationInterfaceState.sendPaidMessageStars
+                            sendPaidMessageStars: strongSelf.presentationInterfaceState.sendPaidMessageStars,
+                            isMonoforum: strongSelf.presentationInterfaceState.renderedPeer?.peer?.isMonoForum ?? false
                         )),
                         hasEntityKeyboard: hasEntityKeyboard,
                         gesture: gesture,
@@ -1222,6 +1243,7 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
         }, joinGroupCall: { _ in
         }, presentInviteMembers: {
         }, presentGigagroupHelp: {
+        }, openSuggestPost: {
         }, editMessageMedia: { _, _ in
         }, updateShowCommands: { _ in
         }, updateShowSendAsPeers: { _ in
@@ -1243,8 +1265,11 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
         }, openStarsPurchase: { _ in
         }, openMessagePayment: {
         }, openBoostToUnrestrict: {
-        }, updateVideoTrimRange: { _, _, _, _ in
+        }, updateRecordingTrimRange: { _, _, _, _ in
+        }, dismissAllTooltips: {  
         }, updateHistoryFilter: { _ in
+        }, updateChatLocationThread: { _, _ in
+        }, toggleChatSidebarMode: {
         }, updateDisplayHistoryFilterAsList: { _ in
         }, requestLayout: { _ in
         }, chatController: {
@@ -1273,7 +1298,11 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
                 if let data = view.cachedData as? CachedUserData {
                     return data.sendPaidMessageStars
                 } else if let channel = peerViewMainPeer(view) as? TelegramChannel {
-                    return channel.sendPaidMessageStars
+                    if channel.isMonoForum, let linkedMonoforumId = channel.linkedMonoforumId, let mainChannel = view.peers[linkedMonoforumId] as? TelegramChannel, mainChannel.hasPermission(.sendSomething) {
+                        return nil
+                    } else {
+                        return channel.sendPaidMessageStars
+                    }
                 } else {
                     return nil
                 }
@@ -1786,7 +1815,9 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
             } else {
                 height = bounds.height + 8.0
             }
-            if !isNarrowButton {
+            if isTwoVerticalButtons && self.secondaryButtonState.smallSpacing {
+                
+            } else if !isNarrowButton {
                 height += 9.0
             }
             if isTwoVerticalButtons {
@@ -1876,7 +1907,8 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
                     mainButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX, y: buttonOriginY + sideInset + buttonSize.height), size: buttonSize)
                 case .bottom:
                     mainButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX, y: buttonOriginY), size: buttonSize)
-                    secondaryButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX, y: buttonOriginY + sideInset + buttonSize.height), size: buttonSize)
+                    let buttonSpacing = self.secondaryButtonState.smallSpacing ? 8.0 : sideInset
+                    secondaryButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX, y: buttonOriginY + buttonSpacing + buttonSize.height), size: buttonSize)
                 case .left:
                     secondaryButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX, y: buttonOriginY), size: buttonSize)
                     mainButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX + buttonSize.width + sideInset, y: buttonOriginY), size: buttonSize)

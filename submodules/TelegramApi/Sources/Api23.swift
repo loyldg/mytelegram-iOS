@@ -47,11 +47,25 @@ public extension Api {
     }
 }
 public extension Api {
-    enum SavedDialog: TypeConstructorDescription {
+    indirect enum SavedDialog: TypeConstructorDescription {
+        case monoForumDialog(flags: Int32, peer: Api.Peer, topMessage: Int32, readInboxMaxId: Int32, readOutboxMaxId: Int32, unreadCount: Int32, unreadReactionsCount: Int32, draft: Api.DraftMessage?)
         case savedDialog(flags: Int32, peer: Api.Peer, topMessage: Int32)
     
     public func serialize(_ buffer: Buffer, _ boxed: Swift.Bool) {
     switch self {
+                case .monoForumDialog(let flags, let peer, let topMessage, let readInboxMaxId, let readOutboxMaxId, let unreadCount, let unreadReactionsCount, let draft):
+                    if boxed {
+                        buffer.appendInt32(1681948327)
+                    }
+                    serializeInt32(flags, buffer: buffer, boxed: false)
+                    peer.serialize(buffer, true)
+                    serializeInt32(topMessage, buffer: buffer, boxed: false)
+                    serializeInt32(readInboxMaxId, buffer: buffer, boxed: false)
+                    serializeInt32(readOutboxMaxId, buffer: buffer, boxed: false)
+                    serializeInt32(unreadCount, buffer: buffer, boxed: false)
+                    serializeInt32(unreadReactionsCount, buffer: buffer, boxed: false)
+                    if Int(flags) & Int(1 << 1) != 0 {draft!.serialize(buffer, true)}
+                    break
                 case .savedDialog(let flags, let peer, let topMessage):
                     if boxed {
                         buffer.appendInt32(-1115174036)
@@ -65,11 +79,49 @@ public extension Api {
     
     public func descriptionFields() -> (String, [(String, Any)]) {
         switch self {
+                case .monoForumDialog(let flags, let peer, let topMessage, let readInboxMaxId, let readOutboxMaxId, let unreadCount, let unreadReactionsCount, let draft):
+                return ("monoForumDialog", [("flags", flags as Any), ("peer", peer as Any), ("topMessage", topMessage as Any), ("readInboxMaxId", readInboxMaxId as Any), ("readOutboxMaxId", readOutboxMaxId as Any), ("unreadCount", unreadCount as Any), ("unreadReactionsCount", unreadReactionsCount as Any), ("draft", draft as Any)])
                 case .savedDialog(let flags, let peer, let topMessage):
                 return ("savedDialog", [("flags", flags as Any), ("peer", peer as Any), ("topMessage", topMessage as Any)])
     }
     }
     
+        public static func parse_monoForumDialog(_ reader: BufferReader) -> SavedDialog? {
+            var _1: Int32?
+            _1 = reader.readInt32()
+            var _2: Api.Peer?
+            if let signature = reader.readInt32() {
+                _2 = Api.parse(reader, signature: signature) as? Api.Peer
+            }
+            var _3: Int32?
+            _3 = reader.readInt32()
+            var _4: Int32?
+            _4 = reader.readInt32()
+            var _5: Int32?
+            _5 = reader.readInt32()
+            var _6: Int32?
+            _6 = reader.readInt32()
+            var _7: Int32?
+            _7 = reader.readInt32()
+            var _8: Api.DraftMessage?
+            if Int(_1!) & Int(1 << 1) != 0 {if let signature = reader.readInt32() {
+                _8 = Api.parse(reader, signature: signature) as? Api.DraftMessage
+            } }
+            let _c1 = _1 != nil
+            let _c2 = _2 != nil
+            let _c3 = _3 != nil
+            let _c4 = _4 != nil
+            let _c5 = _5 != nil
+            let _c6 = _6 != nil
+            let _c7 = _7 != nil
+            let _c8 = (Int(_1!) & Int(1 << 1) == 0) || _8 != nil
+            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 && _c8 {
+                return Api.SavedDialog.monoForumDialog(flags: _1!, peer: _2!, topMessage: _3!, readInboxMaxId: _4!, readOutboxMaxId: _5!, unreadCount: _6!, unreadReactionsCount: _7!, draft: _8)
+            }
+            else {
+                return nil
+            }
+        }
         public static func parse_savedDialog(_ reader: BufferReader) -> SavedDialog? {
             var _1: Int32?
             _1 = reader.readInt32()
@@ -144,13 +196,13 @@ public extension Api {
 }
 public extension Api {
     enum SavedStarGift: TypeConstructorDescription {
-        case savedStarGift(flags: Int32, fromId: Api.Peer?, date: Int32, gift: Api.StarGift, message: Api.TextWithEntities?, msgId: Int32?, savedId: Int64?, convertStars: Int64?, upgradeStars: Int64?, canExportAt: Int32?, transferStars: Int64?)
+        case savedStarGift(flags: Int32, fromId: Api.Peer?, date: Int32, gift: Api.StarGift, message: Api.TextWithEntities?, msgId: Int32?, savedId: Int64?, convertStars: Int64?, upgradeStars: Int64?, canExportAt: Int32?, transferStars: Int64?, canTransferAt: Int32?, canResellAt: Int32?)
     
     public func serialize(_ buffer: Buffer, _ boxed: Swift.Bool) {
     switch self {
-                case .savedStarGift(let flags, let fromId, let date, let gift, let message, let msgId, let savedId, let convertStars, let upgradeStars, let canExportAt, let transferStars):
+                case .savedStarGift(let flags, let fromId, let date, let gift, let message, let msgId, let savedId, let convertStars, let upgradeStars, let canExportAt, let transferStars, let canTransferAt, let canResellAt):
                     if boxed {
-                        buffer.appendInt32(1616305061)
+                        buffer.appendInt32(-539360103)
                     }
                     serializeInt32(flags, buffer: buffer, boxed: false)
                     if Int(flags) & Int(1 << 1) != 0 {fromId!.serialize(buffer, true)}
@@ -163,14 +215,16 @@ public extension Api {
                     if Int(flags) & Int(1 << 6) != 0 {serializeInt64(upgradeStars!, buffer: buffer, boxed: false)}
                     if Int(flags) & Int(1 << 7) != 0 {serializeInt32(canExportAt!, buffer: buffer, boxed: false)}
                     if Int(flags) & Int(1 << 8) != 0 {serializeInt64(transferStars!, buffer: buffer, boxed: false)}
+                    if Int(flags) & Int(1 << 13) != 0 {serializeInt32(canTransferAt!, buffer: buffer, boxed: false)}
+                    if Int(flags) & Int(1 << 14) != 0 {serializeInt32(canResellAt!, buffer: buffer, boxed: false)}
                     break
     }
     }
     
     public func descriptionFields() -> (String, [(String, Any)]) {
         switch self {
-                case .savedStarGift(let flags, let fromId, let date, let gift, let message, let msgId, let savedId, let convertStars, let upgradeStars, let canExportAt, let transferStars):
-                return ("savedStarGift", [("flags", flags as Any), ("fromId", fromId as Any), ("date", date as Any), ("gift", gift as Any), ("message", message as Any), ("msgId", msgId as Any), ("savedId", savedId as Any), ("convertStars", convertStars as Any), ("upgradeStars", upgradeStars as Any), ("canExportAt", canExportAt as Any), ("transferStars", transferStars as Any)])
+                case .savedStarGift(let flags, let fromId, let date, let gift, let message, let msgId, let savedId, let convertStars, let upgradeStars, let canExportAt, let transferStars, let canTransferAt, let canResellAt):
+                return ("savedStarGift", [("flags", flags as Any), ("fromId", fromId as Any), ("date", date as Any), ("gift", gift as Any), ("message", message as Any), ("msgId", msgId as Any), ("savedId", savedId as Any), ("convertStars", convertStars as Any), ("upgradeStars", upgradeStars as Any), ("canExportAt", canExportAt as Any), ("transferStars", transferStars as Any), ("canTransferAt", canTransferAt as Any), ("canResellAt", canResellAt as Any)])
     }
     }
     
@@ -203,6 +257,10 @@ public extension Api {
             if Int(_1!) & Int(1 << 7) != 0 {_10 = reader.readInt32() }
             var _11: Int64?
             if Int(_1!) & Int(1 << 8) != 0 {_11 = reader.readInt64() }
+            var _12: Int32?
+            if Int(_1!) & Int(1 << 13) != 0 {_12 = reader.readInt32() }
+            var _13: Int32?
+            if Int(_1!) & Int(1 << 14) != 0 {_13 = reader.readInt32() }
             let _c1 = _1 != nil
             let _c2 = (Int(_1!) & Int(1 << 1) == 0) || _2 != nil
             let _c3 = _3 != nil
@@ -214,8 +272,10 @@ public extension Api {
             let _c9 = (Int(_1!) & Int(1 << 6) == 0) || _9 != nil
             let _c10 = (Int(_1!) & Int(1 << 7) == 0) || _10 != nil
             let _c11 = (Int(_1!) & Int(1 << 8) == 0) || _11 != nil
-            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 && _c8 && _c9 && _c10 && _c11 {
-                return Api.SavedStarGift.savedStarGift(flags: _1!, fromId: _2, date: _3!, gift: _4!, message: _5, msgId: _6, savedId: _7, convertStars: _8, upgradeStars: _9, canExportAt: _10, transferStars: _11)
+            let _c12 = (Int(_1!) & Int(1 << 13) == 0) || _12 != nil
+            let _c13 = (Int(_1!) & Int(1 << 14) == 0) || _13 != nil
+            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 && _c8 && _c9 && _c10 && _c11 && _c12 && _c13 {
+                return Api.SavedStarGift.savedStarGift(flags: _1!, fromId: _2, date: _3!, gift: _4!, message: _5, msgId: _6, savedId: _7, convertStars: _8, upgradeStars: _9, canExportAt: _10, transferStars: _11, canTransferAt: _12, canResellAt: _13)
             }
             else {
                 return nil

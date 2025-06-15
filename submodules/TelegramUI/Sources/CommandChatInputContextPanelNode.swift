@@ -185,6 +185,8 @@ private struct CommandChatInputContextPanelEntry: Comparable, Identifiable {
                     openAdInfo: { _, _ in
                     },
                     openAccountFreezeInfo: {
+                    },
+                    openUrl: { _ in
                     }
                 )
                 
@@ -247,7 +249,7 @@ private struct CommandChatInputContextPanelEntry: Comparable, Identifiable {
                     hasActiveRevealControls: false,
                     selected: false,
                     header: nil,
-                    enableContextActions: false,
+                    enabledContextActions: nil,
                     hiddenOffset: false,
                     interaction: chatListNodeInteraction
                 )

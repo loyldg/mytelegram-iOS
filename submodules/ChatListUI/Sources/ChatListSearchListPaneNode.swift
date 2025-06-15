@@ -142,8 +142,11 @@ private enum ChatListRecentEntry: Comparable, Identifiable {
                 let primaryPeer: EnginePeer
                 var chatPeer: EnginePeer?
                 let maybeChatPeer = EnginePeer(peer.peer.peers[peer.peer.peerId]!)
-                if let associatedPeerId = maybeChatPeer._asPeer().associatedPeerId, let associatedPeer = peer.peer.peers[associatedPeerId] {
+                if case .secretChat = maybeChatPeer, let associatedPeerId = maybeChatPeer._asPeer().associatedPeerId, let associatedPeer = peer.peer.peers[associatedPeerId] {
                     primaryPeer = EnginePeer(associatedPeer)
+                    chatPeer = maybeChatPeer
+                } else if case .channel = maybeChatPeer, let mainChannel = peer.peer.chatOrMonoforumMainPeer {
+                    primaryPeer = EnginePeer(mainChannel)
                     chatPeer = maybeChatPeer
                 } else {
                     primaryPeer = maybeChatPeer
@@ -1154,7 +1157,7 @@ public enum ChatListSearchEntry: Comparable, Identifiable {
                         
                         if message.id.peerId == peerId {
                             if let threadId = message.threadId, let threadInfo = threadInfo {
-                                chatThreadInfo = ChatListItemContent.ThreadInfo(id: threadId, info: threadInfo, isOwnedByMe: false, isClosed: false, isHidden: false)
+                                chatThreadInfo = ChatListItemContent.ThreadInfo(id: threadId, info: threadInfo, isOwnedByMe: false, isClosed: false, isHidden: false, threadPeer: nil)
                                 index = .forum(pinnedIndex: .none, timestamp: message.index.timestamp, threadId: threadId, namespace: message.index.id.namespace, id: message.index.id.id)
                             } else {
                                 index = .chatList(EngineChatList.Item.Index.ChatList(pinningIndex: nil, messageIndex: message.index))
@@ -1195,7 +1198,7 @@ public enum ChatListSearchEntry: Comparable, Identifiable {
                         requiresPremiumForMessaging: requiresPremiumForMessaging,
                         displayAsTopicList: false,
                         tags: []
-                    )), editing: false, hasActiveRevealControls: false, selected: false, header: tagMask == nil ? header : nil, enableContextActions: false, hiddenOffset: false, interaction: interaction)
+                    )), editing: false, hasActiveRevealControls: false, selected: false, header: tagMask == nil ? header : nil, enabledContextActions: nil, hiddenOffset: false, interaction: interaction)
                 }
             case let .messagePlaceholder(_, presentationData, searchScope):
                 var actionTitle: String?
@@ -1215,7 +1218,7 @@ public enum ChatListSearchEntry: Comparable, Identifiable {
                 let header = ChatListSearchItemHeader(type: .messages(location: nil), theme: presentationData.theme, strings: presentationData.strings, actionTitle: actionTitle, action: { sourceNode in
                     openMessagesFilter(sourceNode)
                 })
-                return ChatListItem(presentationData: presentationData, context: context, chatListLocation: location, filterData: nil, index: EngineChatList.Item.Index.chatList(ChatListIndex(pinningIndex: nil, messageIndex: MessageIndex(id: MessageId(peerId: PeerId(0), namespace: Namespaces.Message.Cloud, id: 0), timestamp: 0))), content: .loading, editing: false, hasActiveRevealControls: false, selected: false, header: header, enableContextActions: false, hiddenOffset: false, interaction: interaction)
+                return ChatListItem(presentationData: presentationData, context: context, chatListLocation: location, filterData: nil, index: EngineChatList.Item.Index.chatList(ChatListIndex(pinningIndex: nil, messageIndex: MessageIndex(id: MessageId(peerId: PeerId(0), namespace: Namespaces.Message.Cloud, id: 0), timestamp: 0))), content: .loading, editing: false, hasActiveRevealControls: false, selected: false, header: header, enabledContextActions: nil, hiddenOffset: false, interaction: interaction)
             case let .emptyMessagesFooter(presentationData, searchScope, searchQuery):
                 var actionTitle: String?
                 let filterTitle: String
@@ -1587,8 +1590,8 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
     
     private let recentListNode: ListView
     private let shimmerNode: ChatListSearchShimmerNode
-    private let listNode: ListView
-    private let mediaNode: ChatListSearchMediaNode
+    private let listNode: ListView?
+    private let mediaNode: ChatListSearchMediaNode?
     private var enqueuedRecentTransitions: [(ChatListSearchContainerRecentTransition, Bool)] = []
     private var enqueuedTransitions: [(ChatListSearchContainerTransition, Bool)] = []
     
@@ -1714,6 +1717,8 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
             tagMask = .music
         case .voice:
             tagMask = .voiceOrInstantVideo
+        case .instantVideo:
+            tagMask = .roundVideo
         }
         self.tagMask = tagMask
         
@@ -1737,8 +1742,8 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
         self.shimmerNode.allowsGroupOpacity = true
             
         self.listNode = ListView()
-        self.listNode.verticalScrollIndicatorColor = self.presentationData.theme.list.scrollIndicatorColor
-        self.listNode.accessibilityPageScrolledString = { row, count in
+        self.listNode?.verticalScrollIndicatorColor = self.presentationData.theme.list.scrollIndicatorColor
+        self.listNode?.accessibilityPageScrolledString = { row, count in
             return presentationData.strings.VoiceOver_ScrollStatus(row, count).string
         }
     
@@ -1746,13 +1751,17 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
         var transitionNodeImpl: ((EngineMessage.Id, EngineMedia) -> (ASDisplayNode, CGRect, () -> (UIView?, UIView?))?)?
         var addToTransitionSurfaceImpl: ((UIView) -> Void)?
         
-        self.mediaNode = ChatListSearchMediaNode(context: self.context, contentType: .photoOrVideo, openMessage: { message, mode in
-            openMediaMessageImpl?(EngineMessage(message), mode)
-        }, messageContextAction: { message, node, rect, gesture in
-            interaction.mediaMessageContextAction(EngineMessage(message), node, rect, gesture)
-        }, toggleMessageSelection: { messageId, selected in
-            interaction.toggleMessageSelection(messageId, selected)
-        })
+        if key == .media {
+            self.mediaNode = ChatListSearchMediaNode(context: self.context, contentType: .photoOrVideo, openMessage: { message, mode in
+                openMediaMessageImpl?(EngineMessage(message), mode)
+            }, messageContextAction: { message, node, rect, gesture in
+                interaction.mediaMessageContextAction(EngineMessage(message), node, rect, gesture)
+            }, toggleMessageSelection: { messageId, selected in
+                interaction.toggleMessageSelection(messageId, selected)
+            })
+        } else {
+            self.mediaNode = nil
+        }
         
         self.mediaAccessoryPanelContainer = PassthroughContainerNode()
         self.mediaAccessoryPanelContainer.clipsToBounds = true
@@ -1822,8 +1831,12 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
             self.addSubnode(recentEmptyNode)
         }
         
-        self.addSubnode(self.listNode)
-        self.addSubnode(self.mediaNode)
+        if let listNode = self.listNode {
+            self.addSubnode(listNode)
+        }
+        if let mediaNode = self.mediaNode {
+            self.addSubnode(mediaNode)
+        }
         
         self.addSubnode(self.emptyResultsAnimationNode)
         self.addSubnode(self.emptyResultsTitleNode)
@@ -1850,8 +1863,8 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
             }
         }
         
-        self.listNode.isHidden = true
-        self.mediaNode.isHidden = true
+        self.listNode?.isHidden = true
+        self.mediaNode?.isHidden = true
         self.recentListNode.isHidden = peersFilter.contains(.excludeRecent)
         
         let currentRemotePeers = Atomic<([FoundPeer], [FoundPeer], [AdPeer])?>(value: nil)
@@ -2738,7 +2751,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                 
                 for thread in allAndFoundThreads {
                     if let peer = thread.renderedPeer.peer, let threadData = thread.threadData, case let .forum(_, _, id, _, _) = thread.index {
-                        entries.append(.topic(peer, ChatListItemContent.ThreadInfo(id: id, info: threadData.info, isOwnedByMe: threadData.isOwnedByMe, isClosed: threadData.isClosed, isHidden: threadData.isHidden), index, presentationData.theme, presentationData.strings, .none))
+                        entries.append(.topic(peer, ChatListItemContent.ThreadInfo(id: id, info: threadData.info, isOwnedByMe: threadData.isOwnedByMe, isClosed: threadData.isClosed, isHidden: threadData.isHidden, threadPeer: nil), index, presentationData.theme, presentationData.strings, .none))
                         index += 1
                     }
                 }
@@ -2977,6 +2990,8 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                             var associatedPeer: EnginePeer?
                             if case let .secretChat(secretChat) = peer, let associatedPeerId = secretChat.associatedPeerId {
                                 associatedPeer = renderedPeer.peers[associatedPeerId]
+                            } else if case let .channel(channel) = peer, channel.isMonoForum {
+                                associatedPeer = renderedPeer.chatOrMonoforumMainPeer
                             }
                             
                             entries.append(.recentlySearchedPeer(peer, associatedPeer, foundLocalPeers.unread[peer.id], index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder, nil, false))
@@ -2988,8 +3003,13 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                 
                 if lowercasedQuery.count > 1 {
                     for peer in recentPeers {
+                        let renderedPeer = peer
                         if let peer = peer.peer.chatMainPeer, !existingPeerIds.contains(peer.id) {
                             let peer = EnginePeer(peer)
+                            var associatedPeer: EnginePeer?
+                            if case let .channel(channel) = peer, channel.isMonoForum {
+                                associatedPeer = renderedPeer.peer.chatOrMonoforumMainPeer.flatMap(EnginePeer.init)
+                            }
                             
                             var matches = false
                             if case let .user(user) = peer {
@@ -3004,7 +3024,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                             
                             if matches {
                                 existingPeerIds.insert(peer.id)
-                                entries.append(.localPeer(peer, nil, nil, index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder, localExpandType, nil, false, false))
+                                entries.append(.localPeer(peer, associatedPeer, nil, index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder, localExpandType, nil, false, false))
                             }
                         }
                     }
@@ -3025,6 +3045,8 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                             var associatedPeer: EnginePeer?
                             if case let .secretChat(secretChat) = peer, let associatedPeerId = secretChat.associatedPeerId {
                                 associatedPeer = renderedPeer.peers[associatedPeerId]
+                            } else if case let .channel(channel) = peer, channel.isMonoForum {
+                                associatedPeer = renderedPeer.chatOrMonoforumMainPeer
                             }
                             
                             entries.append(.localPeer(peer, associatedPeer, foundLocalPeers.unread[peer.id], index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder, localExpandType, nil, false, false))
@@ -3068,6 +3090,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                         
                         if !existingPeerIds.contains(peer.peer.id), filteredPeer(EnginePeer(peer.peer), EnginePeer(accountPeer)) {
                             existingPeerIds.insert(peer.peer.id)
+                            
                             entries.append(.globalPeer(peer, nil, index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder, globalExpandType, nil, false, finalQuery))
                             index += 1
                             numberOfGlobalPeers += 1
@@ -3227,16 +3250,16 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
         }
         
         transitionNodeImpl = { [weak self] messageId, media in
-            if let strongSelf = self {
-                return strongSelf.mediaNode.transitionNodeForGallery(messageId: messageId, media: media._asMedia())
+            if let self {
+                return self.mediaNode?.transitionNodeForGallery(messageId: messageId, media: media._asMedia())
             } else {
                 return nil
             }
         }
         
         addToTransitionSurfaceImpl = { [weak self] view in
-            if let strongSelf = self {
-                strongSelf.mediaNode.addToTransitionSurface(view: view)
+            if let self {
+                self.mediaNode?.addToTransitionSurface(view: view)
             }
         }
         
@@ -3270,7 +3293,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
             case .savedMessagesChats:
                 break
             }
-            self?.listNode.clearHighlightAnimated(true)
+            self?.listNode?.clearHighlightAnimated(true)
         }, disabledPeerSelected: { _, _, _ in
         }, togglePeerSelected: { _, _ in
         }, togglePeersSelection: { _, _ in
@@ -3280,12 +3303,12 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
             if let strongSelf = self, let peer = message.peers[message.id.peerId] {
                 interaction.openMessage(EnginePeer(peer), threadId, message.id, strongSelf.key == .chats)
             }
-            self?.listNode.clearHighlightAnimated(true)
+            self?.listNode?.clearHighlightAnimated(true)
         }, groupSelected: { _ in
         }, addContact: { [weak self] phoneNumber in
             interaction.dismissInput()
             interaction.addContact(phoneNumber)
-            self?.listNode.clearHighlightAnimated(true)
+            self?.listNode?.clearHighlightAnimated(true)
         }, setPeerIdWithRevealedOptions: { _, _ in
         }, setItemPinned: { _, _ in
         }, setPeerMuted: { _, _ in
@@ -3328,7 +3351,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                 }
                 interaction.dismissInput()
                 interaction.openPeer(peer, peer, threadId, false)
-                self.listNode.clearHighlightAnimated(true)
+                self.listNode?.clearHighlightAnimated(true)
             })
         }, openStorageManagement: {
         }, openPasswordSetup: {
@@ -3358,6 +3381,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
         }, openAdInfo: { node, adPeer in
             interaction.openAdInfo(node, adPeer)
         }, openAccountFreezeInfo: {
+        }, openUrl: { _ in
         })
         chatListInteraction.isSearchMode = true
         
@@ -3397,7 +3421,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
             }, transitionNode: { messageId, media, _ in
                 var transitionNode: (ASDisplayNode, CGRect, () -> (UIView?, UIView?))?
                 if let strongSelf = self {
-                    strongSelf.listNode.forEachItemNode { itemNode in
+                    strongSelf.listNode?.forEachItemNode { itemNode in
                         if let itemNode = itemNode as? ListMessageNode {
                             if let result = itemNode.transitionNode(id: messageId, media: media, adjustRect: false) {
                                 transitionNode = result
@@ -3556,7 +3580,9 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                     if isSearching && (entries?.isEmpty ?? true) {
                         entries = nil
                     }
-                    strongSelf.mediaNode.updateHistory(entries: entries, totalCount: 0, updateType: .Initial)
+                    strongSelf.mediaNode?.updateHistory(entries: entries, totalCount: 0, updateType: .Initial)
+                } else if strongSelf.tagMask == .roundVideo {
+                    
                 }
                 
                 var peers: [EnginePeer] = []
@@ -4349,7 +4375,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                 if strongSelf.backgroundColor != nil {
                     strongSelf.backgroundColor = presentationData.theme.chatList.backgroundColor
                 }
-                strongSelf.listNode.forEachItemHeaderNode({ itemHeaderNode in
+                strongSelf.listNode?.forEachItemHeaderNode({ itemHeaderNode in
                     if let itemHeaderNode = itemHeaderNode as? ChatListSearchItemHeaderNode {
                         itemHeaderNode.updateTheme(theme: presentationData.theme)
                     }
@@ -4367,26 +4393,26 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
             interaction.dismissInput()
         }
         
-        self.listNode.beganInteractiveDragging = { _ in
+        self.listNode?.beganInteractiveDragging = { _ in
             interaction.dismissInput()
         }
         
-        self.mediaNode.beganInteractiveDragging = {
+        self.mediaNode?.beganInteractiveDragging = {
             interaction.dismissInput()
         }
         
-        self.listNode.visibleBottomContentOffsetChanged = { offset in
+        self.listNode?.visibleBottomContentOffsetChanged = { offset in
             guard case let .known(value) = offset, value < 160.0 else {
                 return
             }
             loadMore()
         }
         
-        self.mediaNode.loadMore = {
+        self.mediaNode?.loadMore = {
             loadMore()
         }
         
-        if [.file, .music, .voiceOrInstantVideo].contains(tagMask) || self.key == .downloads {
+        if [.file, .music, .voiceOrInstantVideo, .voice, .roundVideo].contains(tagMask) || self.key == .downloads {
             let key = self.key
             self.mediaStatusDisposable = (context.sharedContext.mediaManager.globalMediaPlayerState
             |> mapToSignal { playlistStateAndType -> Signal<(Account, SharedMediaPlayerItemPlaybackState, MediaManagerPlayerType)?, NoError> in
@@ -4396,7 +4422,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                         if let playlistId = state.playlistId as? PeerMessagesMediaPlaylistId, case .custom = playlistId {
                             switch type {
                             case .voice:
-                                if tagMask != .voiceOrInstantVideo {
+                                if ![.voiceOrInstantVideo, .voice, .roundVideo].contains(tagMask) {
                                     return .single(nil) |> delay(0.2, queue: .mainQueue())
                                 }
                             case .music:
@@ -4524,8 +4550,8 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
     }
     
     func scrollToTop() -> Bool {
-        if !self.mediaNode.isHidden {
-            return self.mediaNode.scrollToTop()
+        if let mediaNode = self.mediaNode, !mediaNode.isHidden {
+            return mediaNode.scrollToTop()
         } else if !self.recentListNode.isHidden {
             let offset = self.recentListNode.visibleContentOffset()
             switch offset {
@@ -4535,15 +4561,17 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                 self.recentListNode.transaction(deleteIndices: [], insertIndicesAndItems: [], updateIndicesAndItems: [], options: [.Synchronous, .LowLatency], scrollToItem: ListViewScrollToItem(index: 0, position: .top(0.0), animated: true, curve: .Default(duration: nil), directionHint: .Up), updateSizeAndInsets: nil, stationaryItemRange: nil, updateOpaqueState: nil, completion: { _ in })
                 return true
             }
-        } else {
-            let offset = self.listNode.visibleContentOffset()
+        } else if let listNode = self.listNode {
+            let offset = listNode.visibleContentOffset()
             switch offset {
             case let .known(value) where value <= CGFloat.ulpOfOne:
                 return false
             default:
-                self.listNode.transaction(deleteIndices: [], insertIndicesAndItems: [], updateIndicesAndItems: [], options: [.Synchronous, .LowLatency], scrollToItem: ListViewScrollToItem(index: 0, position: .top(0.0), animated: true, curve: .Default(duration: nil), directionHint: .Up), updateSizeAndInsets: nil, stationaryItemRange: nil, updateOpaqueState: nil, completion: { _ in })
+                listNode.transaction(deleteIndices: [], insertIndicesAndItems: [], updateIndicesAndItems: [], options: [.Synchronous, .LowLatency], scrollToItem: ListViewScrollToItem(index: 0, position: .top(0.0), animated: true, curve: .Default(duration: nil), directionHint: .Up), updateSizeAndInsets: nil, stationaryItemRange: nil, updateOpaqueState: nil, completion: { _ in })
                 return true
             }
+        } else {
+            return false
         }
     }
     
@@ -4852,11 +4880,11 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
             emptyRecentAnimationNode.updateLayout(size: emptyRecentAnimationSize)
         }
         
-        self.listNode.frame = CGRect(origin: CGPoint(), size: size)
-        self.listNode.transaction(deleteIndices: [], insertIndicesAndItems: [], updateIndicesAndItems: [], options: [.Synchronous], scrollToItem: nil, updateSizeAndInsets: ListViewUpdateSizeAndInsets(size: size, insets: insets, duration: duration, curve: curve), stationaryItemRange: nil, updateOpaqueState: nil, completion: { _ in })
+        self.listNode?.frame = CGRect(origin: CGPoint(), size: size)
+        self.listNode?.transaction(deleteIndices: [], insertIndicesAndItems: [], updateIndicesAndItems: [], options: [.Synchronous], scrollToItem: nil, updateSizeAndInsets: ListViewUpdateSizeAndInsets(size: size, insets: insets, duration: duration, curve: curve), stationaryItemRange: nil, updateOpaqueState: nil, completion: { _ in })
         
-        self.mediaNode.frame = CGRect(origin: CGPoint(x: 0.0, y: topInset), size: CGSize(width: size.width, height: size.height))
-        self.mediaNode.update(size: size, sideInset: sideInset, bottomInset: bottomInset, visibleHeight: visibleHeight, isScrollingLockedAtTop: false, expandProgress: 1.0, presentationData: self.presentationData, synchronous: true, transition: transition)
+        self.mediaNode?.frame = CGRect(origin: CGPoint(x: 0.0, y: topInset), size: CGSize(width: size.width, height: size.height))
+        self.mediaNode?.update(size: size, sideInset: sideInset, bottomInset: bottomInset, visibleHeight: visibleHeight, isScrollingLockedAtTop: false, expandProgress: 1.0, presentationData: self.presentationData, synchronous: true, transition: transition)
         
         do {
             let padding: CGFloat = 16.0
@@ -4887,7 +4915,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
     }
     
     func updateHiddenMedia() {
-        self.listNode.forEachItemNode { itemNode in
+        self.listNode?.forEachItemNode { itemNode in
             if let itemNode = itemNode as? ListMessageNode {
                 itemNode.updateHiddenMedia()
             }
@@ -4899,7 +4927,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
     
     func transitionNodeForGallery(messageId: EngineMessage.Id, media: EngineMedia) -> (ASDisplayNode, CGRect, () -> (UIView?, UIView?))? {
         var transitionNode: (ASDisplayNode, CGRect, () -> (UIView?, UIView?))?
-        self.listNode.forEachItemNode { itemNode in
+        self.listNode?.forEachItemNode { itemNode in
             if let itemNode = itemNode as? ListMessageNode {
                 if let result = itemNode.transitionNode(id: messageId, media: media._asMedia(), adjustRect: false) {
                     transitionNode = result
@@ -4915,8 +4943,8 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
     
     func updateSelectedMessages(animated: Bool) {
         self.selectedMessages = self.interaction.getSelectedMessageIds()
-        self.mediaNode.selectedMessageIds = self.selectedMessages
-        self.mediaNode.updateSelectedMessages(animated: animated)
+        self.mediaNode?.selectedMessageIds = self.selectedMessages
+        self.mediaNode?.updateSelectedMessages(animated: animated)
     }
     
     func removeAds() {
@@ -5006,16 +5034,16 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                 options.insert(.PreferSynchronousResourceLoading)
             }
             
-            self.listNode.transaction(deleteIndices: transition.deletions, insertIndicesAndItems: transition.insertions, updateIndicesAndItems: transition.updates, options: options, updateSizeAndInsets: nil, updateOpaqueState: nil, completion: { [weak self] _ in
+            self.listNode?.transaction(deleteIndices: transition.deletions, insertIndicesAndItems: transition.insertions, updateIndicesAndItems: transition.updates, options: options, updateSizeAndInsets: nil, updateOpaqueState: nil, completion: { [weak self] _ in
                 if let strongSelf = self {
                     let searchOptions = strongSelf.searchOptionsValue
-                    strongSelf.listNode.isHidden = strongSelf.tagMask == .photoOrVideo && (strongSelf.searchQueryValue ?? "").isEmpty
-                    strongSelf.mediaNode.isHidden = !strongSelf.listNode.isHidden
+                    strongSelf.listNode?.isHidden = strongSelf.tagMask == .photoOrVideo && (strongSelf.searchQueryValue ?? "").isEmpty
+                    strongSelf.mediaNode?.isHidden = !(strongSelf.listNode?.isHidden ?? true)
                     
                     let displayingResults = transition.displayingResults
                     if !displayingResults {
-                        strongSelf.listNode.isHidden = true
-                        strongSelf.mediaNode.isHidden = true
+                        strongSelf.listNode?.isHidden = true
+                        strongSelf.mediaNode?.isHidden = true
                     }
                     
                     let emptyResults = displayingResults && transition.isEmpty
@@ -5103,7 +5131,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
             }
         } else {
             let adjustedLocation = self.convert(location, to: self.listNode)
-            self.listNode.forEachItemNode { itemNode in
+            self.listNode?.forEachItemNode { itemNode in
                 if itemNode.frame.contains(adjustedLocation) {
                     selectedItemNode = itemNode
                 }
@@ -5349,6 +5377,7 @@ public final class ChatListSearchShimmerNode: ASDisplayNode {
             }, openPhotoSetup: {
             }, openAdInfo: { _, _ in
             }, openAccountFreezeInfo: {
+            }, openUrl: { _ in
             })
             var isInlineMode = false
             if case .topics = key {
@@ -5410,7 +5439,7 @@ public final class ChatListSearchShimmerNode: ASDisplayNode {
                             requiresPremiumForMessaging: false,
                             displayAsTopicList: false,
                             tags: []
-                        )), editing: false, hasActiveRevealControls: false, selected: false, header: nil, enableContextActions: false, hiddenOffset: false, interaction: interaction)
+                        )), editing: false, hasActiveRevealControls: false, selected: false, header: nil, enabledContextActions: nil, hiddenOffset: false, interaction: interaction)
                     case .media:
                         return nil
                     case .links:
@@ -5506,7 +5535,7 @@ public final class ChatListSearchShimmerNode: ASDisplayNode {
                         )
                         
                         return ListMessageItem(presentationData: ChatPresentationData(presentationData: presentationData), context: context, chatLocation: .peer(id: peer1.id), interaction: ListMessageItemInteraction.default, message: message._asMessage(), selection: hasSelection ? .selectable(selected: false) : .none, displayHeader: false, customHeader: nil, hintIsLink: false, isGlobalSearchResult: true)
-                    case .voice:
+                    case .voice, .instantVideo:
                         var media: [EngineMedia] = []
                         media.append(.file(TelegramMediaFile(fileId: EngineMedia.Id(namespace: 0, id: 0), partialReference: nil, resource: LocalFileMediaResource(fileId: 0), previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "audio/ogg", size: 0, attributes: [.Audio(isVoice: true, duration: 0, title: nil, performer: nil, waveform: Data())], alternativeRepresentations: [])))
                         let message = EngineMessage(

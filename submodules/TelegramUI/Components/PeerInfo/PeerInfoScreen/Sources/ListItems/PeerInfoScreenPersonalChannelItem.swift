@@ -189,6 +189,7 @@ public final class LoadingOverlayNode: ASDisplayNode {
             }, openPhotoSetup: {
             }, openAdInfo: { _, _ in
             }, openAccountFreezeInfo: {
+            }, openUrl: { _ in
             })
             
             let items = (0 ..< 1).map { _ -> ChatListItem in
@@ -243,7 +244,7 @@ public final class LoadingOverlayNode: ASDisplayNode {
                     requiresPremiumForMessaging: false,
                     displayAsTopicList: false,
                     tags: []
-                )), editing: false, hasActiveRevealControls: false, selected: false, header: nil, enableContextActions: false, hiddenOffset: false, interaction: interaction)
+                )), editing: false, hasActiveRevealControls: false, selected: false, header: nil, enabledContextActions: nil, hiddenOffset: false, interaction: interaction)
             }
             
             var itemNodes: [ChatListItemNode] = []
@@ -536,7 +537,7 @@ private final class PeerInfoScreenPersonalChannelItemNode: PeerInfoScreenItemNod
                     return
                 }
                 
-                StoryContainerScreen.openPeerStories(context: item.context, peerId: item.data.peer.id, parentController: controller, avatarNode: itemNode.avatarNode)
+                StoryContainerScreen.openPeerStories(context: item.context, peerId: item.data.peer.peerId, parentController: controller, avatarNode: itemNode.avatarNode)
             },
             openStarsTopup: { _ in
             },
@@ -551,6 +552,8 @@ private final class PeerInfoScreenPersonalChannelItemNode: PeerInfoScreenItemNod
             openAdInfo: { _, _ in
             },
             openAccountFreezeInfo: {
+            },
+            openUrl: { _ in
             }
         )
         
@@ -562,7 +565,7 @@ private final class PeerInfoScreenPersonalChannelItemNode: PeerInfoScreenItemNod
             index = EngineChatList.Item.Index.chatList(ChatListIndex(pinningIndex: nil, messageIndex: item.data.topMessages[0].index))
             messages = item.data.topMessages
         } else {
-            index = EngineChatList.Item.Index.chatList(ChatListIndex(pinningIndex: nil, messageIndex: MessageIndex(id: MessageId(peerId: item.data.peer.id, namespace: Namespaces.Message.Cloud, id: 1), timestamp: 0)))
+            index = EngineChatList.Item.Index.chatList(ChatListIndex(pinningIndex: nil, messageIndex: MessageIndex(id: MessageId(peerId: item.data.peer.peerId, namespace: Namespaces.Message.Cloud, id: 1), timestamp: 0)))
             messages = []
         }
         
@@ -574,7 +577,7 @@ private final class PeerInfoScreenPersonalChannelItemNode: PeerInfoScreenItemNod
             index: index,
             content: .peer(ChatListItemContent.PeerData(
                 messages: messages,
-                peer: EngineRenderedPeer(peer: item.data.peer),
+                peer: item.data.peer,
                 threadInfo: nil,
                 combinedReadState: nil,
                 isRemovedFromTotalUnreadCount: false,
@@ -613,7 +616,7 @@ private final class PeerInfoScreenPersonalChannelItemNode: PeerInfoScreenItemNod
             hasActiveRevealControls: false,
             selected: false,
             header: nil,
-            enableContextActions: false,
+            enabledContextActions: nil,
             hiddenOffset: false,
             interaction: chatListNodeInteraction
         )

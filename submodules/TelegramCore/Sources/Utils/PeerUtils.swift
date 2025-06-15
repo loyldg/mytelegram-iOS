@@ -142,11 +142,32 @@ public extension Peer {
     var largeProfileImage: TelegramMediaImageRepresentation? {
         return largestImageRepresentation(self.profileImageRepresentations)
     }
-    
+        
     var isDeleted: Bool {
         switch self {
         case let user as TelegramUser:
             return user.firstName == nil && user.lastName == nil
+        default:
+            return false
+        }
+    }
+    
+    var isGenericUser: Bool {
+        switch self {
+        case let user as TelegramUser:
+            if user.isDeleted {
+                return false
+            }
+            if user.botInfo != nil {
+                return false
+            }
+            if user.id.isRepliesOrVerificationCodes {
+                return false
+            }
+            if user.id.isTelegramNotifications {
+                return false
+            }
+            return true
         default:
             return false
         }
@@ -245,6 +266,30 @@ public extension Peer {
     var isForum: Bool {
         if let channel = self as? TelegramChannel {
             return channel.flags.contains(.isForum)
+        } else {
+            return false
+        }
+    }
+    
+    var isMonoForum: Bool {
+        if let channel = self as? TelegramChannel {
+            return channel.flags.contains(.isMonoforum)
+        } else {
+            return false
+        }
+    }
+    
+    var displayForumAsTabs: Bool {
+        if let channel = self as? TelegramChannel, isForum {
+            return channel.flags.contains(.displayForumAsTabs)
+        } else {
+            return false
+        }
+    }
+    
+    var isForumOrMonoForum: Bool {
+        if let channel = self as? TelegramChannel {
+            return channel.flags.contains(.isForum) || channel.flags.contains(.isMonoforum)
         } else {
             return false
         }
@@ -418,6 +463,18 @@ public func peerViewMainPeer(_ view: PeerView) -> Peer? {
     }
 }
 
+public func peerViewMonoforumMainPeer(_ view: PeerView) -> Peer? {
+    if let peer = peerViewMainPeer(view) {
+        if let channel = peer as? TelegramChannel, channel.flags.contains(.isMonoforum), let linkedMonoforumId = channel.linkedMonoforumId {
+            return view.peers[linkedMonoforumId]
+        } else {
+            return nil
+        }
+    } else {
+        return nil
+    }
+}
+
 public extension RenderedPeer {
     convenience init(message: Message) {
         var peers = SimpleDictionary<PeerId, Peer>()
@@ -442,6 +499,14 @@ public extension RenderedPeer {
             }
         } else {
             return nil
+        }
+    }
+    
+    var chatOrMonoforumMainPeer: Peer? {
+        if let channel = self.peer as? TelegramChannel, channel.flags.contains(.isMonoforum), let linkedMonoforumId = channel.linkedMonoforumId {
+            return self.peers[linkedMonoforumId]
+        } else {
+            return self.chatMainPeer
         }
     }
 }

@@ -215,6 +215,8 @@ final class GreetingMessageListItemComponent: Component {
                     openAdInfo: { _, _ in
                     },
                     openAccountFreezeInfo: {
+                    },
+                    openUrl: { _ in
                     }
                 )
                 self.chatListNodeInteraction = chatListNodeInteraction
@@ -262,7 +264,7 @@ final class GreetingMessageListItemComponent: Component {
                 hasActiveRevealControls: false,
                 selected: false,
                 header: nil,
-                enableContextActions: false,
+                enabledContextActions: nil,
                 hiddenOffset: false,
                 interaction: chatListNodeInteraction
             )

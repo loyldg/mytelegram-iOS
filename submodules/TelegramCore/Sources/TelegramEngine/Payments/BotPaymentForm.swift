@@ -17,6 +17,7 @@ public enum BotPaymentInvoiceSource {
     case starGiftUpgrade(keepOriginalInfo: Bool, reference: StarGiftReference)
     case starGiftTransfer(reference: StarGiftReference, toPeerId: EnginePeer.Id)
     case premiumGift(peerId: EnginePeer.Id, option: CachedPremiumGiftOption, text: String?, entities: [MessageTextEntity]?)
+    case starGiftResale(slug: String, toPeerId: EnginePeer.Id)
 }
 
 public struct BotPaymentInvoiceFields: OptionSet {
@@ -178,6 +179,7 @@ public enum BotPaymentFormRequestError {
     case alreadyActive
     case noPaymentNeeded
     case disallowedStarGift
+    case starGiftResellTooEarly(Int32)
 }
 
 extension BotPaymentInvoice {
@@ -400,6 +402,11 @@ func _internal_parseInputInvoice(transaction: Transaction, source: BotPaymentInv
             message = .textWithEntities(text: text, entities: entities.flatMap { apiEntitiesFromMessageTextEntities($0, associatedPeers: SimpleDictionary()) } ?? [])
         }
         return .inputInvoicePremiumGiftStars(flags: flags, userId: inputUser, months: option.months, message: message)
+    case let .starGiftResale(slug, toPeerId):
+        guard let peer = transaction.getPeer(toPeerId), let inputPeer = apiInputPeer(peer) else {
+            return nil
+        }
+        return .inputInvoiceStarGiftResale(slug: slug, toId: inputPeer)
     }
 }
 
@@ -476,6 +483,11 @@ func _internal_fetchBotPaymentForm(accountPeerId: PeerId, postbox: Postbox, netw
                 return .fail(.noPaymentNeeded)
             } else if error.errorDescription == "USER_DISALLOWED_STARGIFTS" {
                 return .fail(.disallowedStarGift)
+            } else if error.errorDescription.hasPrefix("STARGIFT_RESELL_TOO_EARLY_") {
+                let timeout = String(error.errorDescription[error.errorDescription.index(error.errorDescription.startIndex, offsetBy: "STARGIFT_RESELL_TOO_EARLY_".count)...])
+                if let value = Int32(timeout) {
+                    return .fail(.starGiftResellTooEarly(value))
+                }
             }
             return .fail(.generic)
         }
@@ -733,7 +745,7 @@ func _internal_sendBotPaymentForm(account: Account, formId: Int64, source: BotPa
                                                     receiptMessageId = id
                                                 }
                                             }
-                                        case .giftCode, .stars, .starsGift, .starsChatSubscription, .starGift, .starGiftUpgrade, .starGiftTransfer, .premiumGift:
+                                        case .giftCode, .stars, .starsGift, .starsChatSubscription, .starGift, .starGiftUpgrade, .starGiftTransfer, .premiumGift, .starGiftResale:
                                             receiptMessageId = nil
                                         }
                                     }

@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import UIKit
 import Display
 import AsyncDisplayKit
@@ -44,6 +45,7 @@ import TelegramNotices
 import AnimatedCountLabelNode
 import TelegramStringFormatting
 import TextNodeWithEntities
+import DeviceModel
 
 private let accessoryButtonFont = Font.medium(14.0)
 private let counterFont = Font.with(size: 14.0, design: .regular, traits: [.monospacedNumbers])
@@ -537,6 +539,7 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
     var customEmojiContainerView: CustomEmojiContainerView?
     
     let textInputBackgroundNode: ASImageNode
+    var textInputBackgroundTapRecognizer: TouchDownGestureRecognizer?
     private var transparentTextInputBackgroundImage: UIImage?
     let actionButtons: ChatTextInputActionButtonsNode
     private let slowModeButton: BoostSlowModeButton
@@ -1087,6 +1090,7 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                 return false
             }
         }
+        self.textInputBackgroundTapRecognizer = recognizer
         self.textInputBackgroundNode.isUserInteractionEnabled = true
         self.textInputBackgroundNode.view.addGestureRecognizer(recognizer)
         
@@ -1163,6 +1167,11 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
         textInputNode.view.disablesInteractiveTransitionGestureRecognizer = true
         textInputNode.isUserInteractionEnabled = !self.sendingTextDisabled
         self.textInputNode = textInputNode
+        
+        if let textInputBackgroundTapRecognizer = self.textInputBackgroundTapRecognizer {
+            self.textInputBackgroundTapRecognizer = nil
+            self.textInputBackgroundNode.view.removeGestureRecognizer(textInputBackgroundTapRecognizer)
+        }
         
         var accessoryButtonsWidth: CGFloat = 0.0
         var firstButton = true
@@ -1264,27 +1273,8 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                 }
             }
         }
-        recognizer.waitForTouchUp = { [weak self] in
-            guard let strongSelf = self, let textInputNode = strongSelf.textInputNode else {
-                return true
-            }
-            
-            if textInputNode.textView.isFirstResponder {
-                return true
-            } else if let (_, _, _, bottomInset, _, _, metrics, _, _) = strongSelf.validLayout {
-                let textFieldWaitsForTouchUp: Bool
-                if case .regular = metrics.widthClass, bottomInset.isZero {
-                    textFieldWaitsForTouchUp = true
-                } else if !textInputNode.textView.text.isEmpty {
-                    textFieldWaitsForTouchUp = true
-                } else {
-                    textFieldWaitsForTouchUp = false
-                }
-                
-                return textFieldWaitsForTouchUp
-            } else {
-                return false
-            }
+        recognizer.waitForTouchUp = {
+            return true
         }
         textInputNode.view.addGestureRecognizer(recognizer)
         self.touchDownGestureRecognizer = recognizer
@@ -1883,7 +1873,7 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                 peerUpdated = true
             }
             
-            if peerUpdated || previousState?.interfaceState.silentPosting != interfaceState.interfaceState.silentPosting || themeUpdated || !self.initializedPlaceholder || previousState?.keyboardButtonsMessage?.id != interfaceState.keyboardButtonsMessage?.id || previousState?.keyboardButtonsMessage?.visibleReplyMarkupPlaceholder != interfaceState.keyboardButtonsMessage?.visibleReplyMarkupPlaceholder || dismissedButtonMessageUpdated || replyMessageUpdated || (previousState?.interfaceState.editMessage == nil) != (interfaceState.interfaceState.editMessage == nil) || previousState?.forumTopicData != interfaceState.forumTopicData || previousState?.replyMessage?.id != interfaceState.replyMessage?.id || previousState?.sendPaidMessageStars != interfaceState.sendPaidMessageStars {
+            if peerUpdated || previousState?.chatLocation != interfaceState.chatLocation || previousState?.interfaceState.silentPosting != interfaceState.interfaceState.silentPosting || themeUpdated || !self.initializedPlaceholder || previousState?.keyboardButtonsMessage?.id != interfaceState.keyboardButtonsMessage?.id || previousState?.keyboardButtonsMessage?.visibleReplyMarkupPlaceholder != interfaceState.keyboardButtonsMessage?.visibleReplyMarkupPlaceholder || dismissedButtonMessageUpdated || replyMessageUpdated || (previousState?.interfaceState.editMessage == nil) != (interfaceState.interfaceState.editMessage == nil) || previousState?.forumTopicData != interfaceState.forumTopicData || previousState?.replyMessage?.id != interfaceState.replyMessage?.id || previousState?.sendPaidMessageStars != interfaceState.sendPaidMessageStars {
                 self.initializedPlaceholder = true
                 
                 var placeholder: String = ""
@@ -1912,7 +1902,7 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                                 } else {
                                     placeholder = interfaceState.strings.Conversation_InputTextPlaceholderReply
                                 }
-                            } else if let channel = peer as? TelegramChannel, channel.isForum, let forumTopicData = interfaceState.forumTopicData {
+                            } else if let channel = peer as? TelegramChannel, channel.isForumOrMonoForum, let forumTopicData = interfaceState.forumTopicData {
                                 if let replyMessage = interfaceState.replyMessage, let threadInfo = replyMessage.associatedThreadInfo {
                                     placeholder = interfaceState.strings.Chat_InputPlaceholderReplyInTopic(threadInfo.title).string
                                 } else {
@@ -2235,7 +2225,7 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                         hideInfo = true
                     }
                 case .waitingForPreview:
-                    Queue.mainQueue().after(0.3, {
+                    Queue.mainQueue().after(0.5, {
                         self.actionButtons.micButton.audioRecorder = nil
                     })
                 }
@@ -2493,8 +2483,15 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
         var actionButtonsSize = CGSize(width: 44.0, height: minimalHeight)
         if let presentationInterfaceState = self.presentationInterfaceState {
             var showTitle = false
-            if let _ = presentationInterfaceState.sendPaidMessageStars, !self.actionButtons.sendContainerNode.alpha.isZero {
-                showTitle = true
+            if !self.actionButtons.sendContainerNode.alpha.isZero {
+                if let _ = presentationInterfaceState.sendPaidMessageStars {
+                    showTitle = true
+                } else if case let .customChatContents(customChatContents) = interfaceState.subject {
+                    switch customChatContents.kind {
+                    default:
+                        break
+                    }
+                }
             }
             actionButtonsSize = self.actionButtons.updateLayout(size: CGSize(width: 44.0, height: minimalHeight), isMediaInputExpanded: isMediaInputExpanded, showTitle: showTitle, currentMessageEffectId: presentationInterfaceState.interfaceState.sendMessageEffect, transition: transition, interfaceState: presentationInterfaceState)
         }
@@ -2807,8 +2804,8 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                 
                 animatePosition(for: prevPreviewInputPanelNode.waveformBackgroundNode.layer)
                 animatePosition(for: prevPreviewInputPanelNode.waveformScrubberNode.layer)
-                animatePosition(for: prevPreviewInputPanelNode.durationLabel.layer)
-                animatePosition(for: prevPreviewInputPanelNode.playButton.layer)
+                animatePosition(for: prevPreviewInputPanelNode.playButtonNode.layer)
+                animatePosition(for: prevPreviewInputPanelNode.trimView.layer)
                 if let view = prevPreviewInputPanelNode.scrubber.view {
                     animatePosition(for: view.layer)
                 }
@@ -2824,8 +2821,8 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
             }
             animateAlpha(for: prevPreviewInputPanelNode.waveformBackgroundNode.layer)
             animateAlpha(for: prevPreviewInputPanelNode.waveformScrubberNode.layer)
-            animateAlpha(for: prevPreviewInputPanelNode.durationLabel.layer)
-            animateAlpha(for: prevPreviewInputPanelNode.playButton.layer)
+            animateAlpha(for: prevPreviewInputPanelNode.playButtonNode.layer)
+            animateAlpha(for: prevPreviewInputPanelNode.trimView.layer)
             if let view = prevPreviewInputPanelNode.scrubber.view {
                 animateAlpha(for: view.layer)
             }
@@ -2927,6 +2924,7 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
         
         self.tooltipController?.dismiss()
         if self.viewOnce {
+            self.interfaceInteraction?.dismissAllTooltips()
             self.displayViewOnceTooltip(text: interfaceState.strings.Chat_PlayVoiceMessageOnceTooltip)
             
             let _ = ApplicationSpecificNotice.incrementVoiceMessagesPlayOnceSuggestion(accountManager: context.sharedContext.accountManager, count: 3).startStandalone()
@@ -4054,6 +4052,10 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
         }
         
         self.inputMenu.activate()
+        
+        if let touchDownGestureRecognizer = self.touchDownGestureRecognizer {
+            self.textInputNode?.view.addGestureRecognizer(touchDownGestureRecognizer)
+        }
     }
     
     @objc func editableTextNodeDidBeginEditing(_ editableTextNode: ASEditableTextNode) {
@@ -4087,6 +4089,10 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
                     break
                 }
             }
+        }
+        
+        if let touchDownGestureRecognizer = self.touchDownGestureRecognizer {
+            self.textInputNode?.view.removeGestureRecognizer(touchDownGestureRecognizer)
         }
     }
     
@@ -4450,10 +4456,14 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate, Ch
         var attributedString: NSAttributedString?
         if let data = pasteboard.data(forPasteboardType: "private.telegramtext"), let value = chatInputStateStringFromAppSpecificString(data: data) {
             attributedString = value
-        } else if let data = pasteboard.data(forPasteboardType: kUTTypeRTF as String) {
+        } else if let data = pasteboard.data(forPasteboardType: "public.rtf") {
             attributedString = chatInputStateStringFromRTF(data, type: NSAttributedString.DocumentType.rtf)
         } else if let data = pasteboard.data(forPasteboardType: "com.apple.flat-rtfd") {
-            attributedString = chatInputStateStringFromRTF(data, type: NSAttributedString.DocumentType.rtfd)
+            if let _ = pasteboard.data(forPasteboardType: "com.apple.notes.richtext"), DeviceModel.current.isIpad, let htmlData = pasteboard.data(forPasteboardType: "public.html") {
+                attributedString = chatInputStateStringFromRTF(htmlData, type: NSAttributedString.DocumentType.html)
+            } else {
+                attributedString = chatInputStateStringFromRTF(data, type: NSAttributedString.DocumentType.rtfd)
+            }
         }
         
         if let attributedString = attributedString {

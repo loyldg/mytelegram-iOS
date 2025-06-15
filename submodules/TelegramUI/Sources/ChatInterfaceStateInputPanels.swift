@@ -229,7 +229,23 @@ func inputPanelForChatPresentationIntefaceState(_ chatPresentationInterfaceState
                 }
             }
             
-            if channel.flags.contains(.isForum) && isMember {
+            if channel.flags.contains(.isMonoforum) {
+                if let linkedMonoforumId = channel.linkedMonoforumId, let mainChannel = chatPresentationInterfaceState.renderedPeer?.peers[linkedMonoforumId] as? TelegramChannel, mainChannel.hasPermission(.sendSomething), case .peer = chatPresentationInterfaceState.chatLocation {
+                    if chatPresentationInterfaceState.interfaceState.replyMessageSubject == nil {
+                        displayInputTextPanel = false
+                        if let currentPanel = (currentPanel as? ChatRestrictedInputPanelNode) ?? (currentSecondaryPanel as? ChatRestrictedInputPanelNode) {
+                            return (currentPanel, nil)
+                        } else {
+                            let panel = ChatRestrictedInputPanelNode()
+                            panel.context = context
+                            panel.interfaceInteraction = interfaceInteraction
+                            return (panel, nil)
+                        }
+                    }
+                } else {
+                    displayInputTextPanel = true
+                }
+            } else if channel.flags.contains(.isForum) && isMember {
                 var canManage = false
                 if channel.flags.contains(.isCreator) {
                     canManage = true
@@ -304,7 +320,7 @@ func inputPanelForChatPresentationIntefaceState(_ chatPresentationInterfaceState
             case .group:
                 switch channel.participationStatus {
                 case .kicked, .left:
-                    if !isMember {
+                    if !channel.flags.contains(.isMonoforum) && !isMember {
                         if let currentPanel = (currentPanel as? ChatChannelSubscriberInputPanelNode) ?? (currentSecondaryPanel as? ChatChannelSubscriberInputPanelNode) {
                             return (currentPanel, nil)
                         } else {
@@ -328,22 +344,6 @@ func inputPanelForChatPresentationIntefaceState(_ chatPresentationInterfaceState
                         break
                     }
                 }
-            }
-            
-            if channel.flags.contains(.isForum) {
-                /*if let _ = chatPresentationInterfaceState.threadData {
-                } else {
-                    if chatPresentationInterfaceState.interfaceState.replyMessageSubject == nil {
-                        if let currentPanel = (currentPanel as? ChatRestrictedInputPanelNode) ?? (currentSecondaryPanel as? ChatRestrictedInputPanelNode) {
-                            return (currentPanel, nil)
-                        } else {
-                            let panel = ChatRestrictedInputPanelNode()
-                            panel.context = context
-                            panel.interfaceInteraction = interfaceInteraction
-                            return (panel, nil)
-                        }
-                    }
-                }*/
             }
         } else if let group = peer as? TelegramGroup {
             switch group.membership {

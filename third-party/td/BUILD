@@ -109,7 +109,6 @@ objc_library(
     enable_modules = True,
     hdrs = [":Public/td/" + x for x in headers],
     includes = [
-        "Public",
         "Public/td",
     ],
     deps = [
@@ -129,12 +128,16 @@ objc_library(
         "TdBinding/Sources/**/*.m",
         "TdBinding/Sources/**/*.mm",
         "TdBinding/Sources/**/*.h",
-    ]),
+    ], allow_empty=True),
     hdrs = glob([
         "TdBinding/Public/**/*.h",
     ]),
     copts = [
         "-Werror",
+    ],
+    cxxopts = [
+        "-Werror",
+        "-std=c++17",
     ],
     includes = [
         "TdBinding/Public",

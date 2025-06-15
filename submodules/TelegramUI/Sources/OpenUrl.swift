@@ -1014,9 +1014,24 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                             convertedUrl = "https://t.me/call/\(slug)"
                         }
                     }
+                } else if parsedUrl.host == "shareStory" {
+                    if let components = URLComponents(string: "/?" + query) {
+                        if let queryItems = components.queryItems {
+                            for queryItem in queryItems {
+                                if let value = queryItem.value {
+                                    if queryItem.name == "session", let sessionId = Int64(value) {
+                                        handleResolvedUrl(.shareStory(sessionId))
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             } else {
-                if parsedUrl.host == "importStickers" {
+                if parsedUrl.host == "stars" {
+                    handleResolvedUrl(.stars)
+                } else if parsedUrl.host == "importStickers" {
                     handleResolvedUrl(.importStickers)
                 } else if parsedUrl.host == "settings" {
                     if let path = parsedUrl.pathComponents.last {

@@ -170,8 +170,10 @@ public extension MessageTags {
     static let video = MessageTags(rawValue: 1 << 9)
     static let pinned = MessageTags(rawValue: 1 << 10)
     static let unseenReaction = MessageTags(rawValue: 1 << 11)
+    static let voice = MessageTags(rawValue: 1 << 12)
+    static let roundVideo = MessageTags(rawValue: 1 << 13)
     
-    static let all: MessageTags = [.photoOrVideo, .file, .music, .webPage, .voiceOrInstantVideo, .unseenPersonalMessage, .liveLocation, .gif, .photo, .video, .pinned, .unseenReaction]
+    static let all: MessageTags = [.photoOrVideo, .file, .music, .webPage, .voiceOrInstantVideo, .unseenPersonalMessage, .liveLocation, .gif, .photo, .video, .pinned, .unseenReaction, .voice, .roundVideo]
 }
 
 public extension GlobalMessageTags {
@@ -310,6 +312,8 @@ private enum PreferencesKeyValues: Int32 {
     case starGifts = 41
     case botStorageState = 42
     case secureBotStorageState = 43
+    case serverSuggestionInfo = 44
+    case persistentChatInterfaceData = 45
 }
 
 public func applicationSpecificPreferencesKey(_ value: Int32) -> ValueBoxKey {
@@ -551,6 +555,19 @@ public struct PreferencesKeys {
     public static func secureBotStorageState() -> ValueBoxKey {
         let key = ValueBoxKey(length: 4 + 8)
         key.setInt32(0, value: PreferencesKeyValues.secureBotStorageState.rawValue)
+        return key
+    }
+    
+    public static func serverSuggestionInfo() -> ValueBoxKey {
+        let key = ValueBoxKey(length: 4 + 8)
+        key.setInt32(0, value: PreferencesKeyValues.serverSuggestionInfo.rawValue)
+        return key
+    }
+    
+    public static func persistentChatInterfaceData(peerId: PeerId) -> ValueBoxKey {
+        let key = ValueBoxKey(length: 4 + 8)
+        key.setInt32(0, value: PreferencesKeyValues.persistentChatInterfaceData.rawValue)
+        key.setInt64(4, value: peerId.toInt64())
         return key
     }
 }

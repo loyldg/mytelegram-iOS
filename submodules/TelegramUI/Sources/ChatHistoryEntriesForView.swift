@@ -120,8 +120,6 @@ func chatHistoryEntriesForView(
         }
     }
     
-    //var existingGroupStableIds: [UInt32] = []
-    //var groupBucket: [(Message, Bool, ChatHistoryMessageSelection, ChatMessageEntryAttributes, MessageHistoryEntryLocation?)] = []
     var count = 0
     loop: for entry in view.entries {
         var message = entry.message
@@ -135,6 +133,20 @@ func chatHistoryEntriesForView(
             for media in message.media {
                 if let action = media as? TelegramMediaAction, case .topicCreated = action.action {
                     continue loop
+                }
+            }
+        } else if case .peer = location {
+            for media in message.media {
+                if let action = media as? TelegramMediaAction, case .groupCreated = action.action {
+                    var chatPeer: Peer?
+                    for entry in view.additionalData {
+                        if case let .peer(_, peer) = entry {
+                            chatPeer = peer
+                        }
+                    }
+                    if let channel = chatPeer as? TelegramChannel, channel.isMonoForum {
+                        continue loop
+                    }
                 }
             }
         }
@@ -198,7 +210,7 @@ func chatHistoryEntriesForView(
         }
     
         if groupMessages || reverseGroupedMessages {
-            if let messageGroupingKey = message.groupingKey, (groupMessages || reverseGroupedMessages) {
+            if let messageGroupingKey = message.groupingKey {
                 let selection: ChatHistoryMessageSelection
                 if let selectedMessages = selectedMessages {
                     selection = .selectable(selected: selectedMessages.contains(message.id))
@@ -269,6 +281,22 @@ func chatHistoryEntriesForView(
             
             entries.append(.MessageEntry(message, presentationData, isRead, entry.location, selection, ChatMessageEntryAttributes(rank: adminRank, isContact: entry.attributes.authorIsContact, contentTypeHint: contentTypeHint, updatingMedia: updatingMedia[message.id], isPlaying: message.index == associatedData.currentlyPlayingMessageId, isCentered: false, authorStoryStats: message.author.flatMap { view.peerStoryStats[$0.id] })))
         }
+    }
+    
+    if !groupMessages && reverseGroupedMessages {
+        var flatEntries: [ChatHistoryEntry] = []
+        
+        for entry in entries {
+            switch entry {
+            case let .MessageGroupEntry(_, messages, presentationData):
+                for (message, isRead, selection, attributes, location) in messages {
+                    flatEntries.append(.MessageEntry(message, presentationData, isRead, location, selection, attributes))
+                }
+            default:
+                flatEntries.append(entry)
+            }
+        }
+        entries = flatEntries
     }
     
     let insertPendingProcessingMessage: ([Message], Int) -> Void = { messages, index in

@@ -12,8 +12,8 @@ final class CameraSession {
     
     let hasMultiCam: Bool
         
-    init() {
-        if #available(iOS 13.0, *), AVCaptureMultiCamSession.isMultiCamSupported {
+    init(forRoundVideo: Bool) {
+        if #available(iOS 13.0, *), Camera.isDualCameraSupported(forRoundVideo: forRoundVideo) {
             self.multiSession = AVCaptureMultiCamSession()
             self.singleSession = nil
             self.hasMultiCam = true
@@ -173,8 +173,11 @@ private final class CameraContext {
         self.positionValue = configuration.position
         self._positionPromise = ValuePromise<Camera.Position>(configuration.position)
         
+#if targetEnvironment(simulator)
+#else
         self.setDualCameraEnabled(configuration.isDualEnabled, change: false)
-                        
+#endif
+        
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(self.sessionRuntimeError),
@@ -762,7 +765,7 @@ public final class Camera {
         
         self.metrics = Camera.Metrics(model: DeviceModel.current)
         
-        let session = CameraSession()
+        let session = CameraSession(forRoundVideo: configuration.isRoundVideo)
         session.session.automaticallyConfiguresApplicationAudioSession = false
         session.session.automaticallyConfiguresCaptureDeviceForWideColor = false
         session.session.usesApplicationAudioSession = true
