@@ -80,19 +80,15 @@ public extension UIColor {
     }
     
     convenience init?(hexString: String) {
-        let scanner = Scanner(string: hexString)
-        if hexString.hasPrefix("#") {
-            scanner.scanLocation = 1
-        }
-        var value: UInt32 = 0
-        if scanner.scanHexInt32(&value) {
-            if hexString.count > 7 {
-                self.init(argb: value)
-            } else {
-                self.init(rgb: value)
-            }
-        } else {
+        let cleanedString = hexString.hasPrefix("#") ? hexString.dropFirst() : hexString[...]
+        guard let value = UInt32(cleanedString, radix: 16) else {
             return nil
+        }
+        
+        if hexString.count > 7 {
+            self.init(argb: value)
+        } else {
+            self.init(rgb: value)
         }
     }
     
@@ -513,9 +509,29 @@ private func makeSubtreeSnapshot(layer: CALayer, keepPortals: Bool = false, keep
             return nil
         }
     }
+    var unhide = false
+    var markToHide = false
+    if keepPortals {
+        if let view = (layer.delegate as? UIView) {
+            if view.tag == 0x1bad, view.alpha > 0.0 {
+                return nil
+            } else if view.tag == 0x2bad {
+                markToHide = true
+            } else if view.tag == 0x3bad {
+                unhide = true
+            }
+        }
+    }
     let view = UIView()
+    if markToHide {
+        view.tag = 0x2bad
+    }
     view.layer.isHidden = layer.isHidden
-    view.layer.opacity = layer.opacity
+    if unhide {
+        view.layer.opacity = 1.0
+    } else {
+        view.layer.opacity = layer.opacity
+    }
     view.layer.contents = layer.contents
     view.layer.contentsRect = layer.contentsRect
     view.layer.contentsScale = layer.contentsScale
@@ -545,10 +561,14 @@ private func makeSubtreeSnapshot(layer: CALayer, keepPortals: Bool = false, keep
     }
     view.layer.cornerRadius = layer.cornerRadius
     view.layer.backgroundColor = layer.backgroundColor
+    
     if let sublayers = layer.sublayers {
         for sublayer in sublayers {
             let subtree = makeSubtreeSnapshot(layer: sublayer, keepPortals: keepPortals, keepTransform: keepTransform)
             if let subtree = subtree {
+                if subtree.tag == 0x2bad {
+                    return nil
+                }
                 if keepTransform {
                     subtree.layer.transform = sublayer.transform
                 }
@@ -572,6 +592,7 @@ private func makeSubtreeSnapshot(layer: CALayer, keepPortals: Bool = false, keep
             }
         }
     }
+    
     return view
 }
 

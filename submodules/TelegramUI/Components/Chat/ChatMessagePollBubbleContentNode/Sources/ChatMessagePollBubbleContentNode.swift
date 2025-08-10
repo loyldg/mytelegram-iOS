@@ -449,10 +449,12 @@ private final class ChatMessagePollOptionNode: ASDisplayNode {
         self.buttonNode.highligthedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted {
-                    if "".isEmpty, let contentNode = strongSelf.supernode as? ChatMessagePollBubbleContentNode, let backdropNode = contentNode.bubbleBackgroundNode?.backdropNode {
+                    if let theme = strongSelf.theme, theme.overallDarkAppearance, let contentNode = strongSelf.supernode as? ChatMessagePollBubbleContentNode, let backdropNode = contentNode.bubbleBackgroundNode?.backdropNode {
                         strongSelf.highlightedBackgroundNode.layer.compositingFilter = "overlayBlendMode"
                         strongSelf.highlightedBackgroundNode.frame = strongSelf.view.convert(strongSelf.highlightedBackgroundNode.frame, to: backdropNode.view)
                         backdropNode.addSubnode(strongSelf.highlightedBackgroundNode)
+                    } else {
+                        strongSelf.insertSubnode(strongSelf.highlightedBackgroundNode, at: 0)
                     }
                     
                     strongSelf.highlightedBackgroundNode.layer.removeAnimation(forKey: "opacity")
@@ -1126,6 +1128,7 @@ public class ChatMessagePollBubbleContentNode: ChatMessageBubbleContentNode {
                         reactionPeers: dateReactionsAndPeers.peers,
                         displayAllReactionPeers: item.message.id.peerId.namespace == Namespaces.Peer.CloudUser,
                         areReactionsTags: item.topMessage.areReactionsTags(accountPeerId: item.context.account.peerId),
+                        areStarReactionsEnabled: item.associatedData.areStarReactionsEnabled,
                         messageEffect: item.topMessage.messageEffect(availableMessageEffects: item.associatedData.availableMessageEffects),
                         replyCount: dateReplies,
                         starsCount: starsCount,

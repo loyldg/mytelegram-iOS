@@ -42,8 +42,9 @@ public enum PremiumIntroSource {
     case folderTags
     case animatedEmoji
     case messageEffects
-    case paidMessages
+    case todo
     case auth(String)
+    case premiumGift(TelegramMediaFile)
 }
 
 public enum PremiumGiftSource: Equatable {
@@ -81,7 +82,7 @@ public enum PremiumDemoSubject {
     case folderTags
     case business
     case messageEffects
-    case paidMessages
+    case todo
     
     case businessLocation
     case businessHours

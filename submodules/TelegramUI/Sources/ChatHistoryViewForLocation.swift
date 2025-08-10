@@ -91,6 +91,8 @@ func chatHistoryViewForLocation(
             ignoreRelatedChats = false
         }
         
+        let trackHoles = true
+        
         switch location.content {
             case let .Initial(count):
                 var preloaded = false
@@ -107,9 +109,9 @@ func chatHistoryViewForLocation(
                 }
             
                 if requestAroundId {
-                    signal = account.viewTracker.aroundMessageHistoryViewForLocation(context.chatLocationInput(for: chatLocation, contextHolder: chatLocationContextHolder), ignoreMessagesInTimestampRange: ignoreMessagesInTimestampRange, ignoreMessageIds: ignoreMessageIds, index: .upperBound, anchorIndex: .upperBound, count: count, ignoreRelatedChats: ignoreRelatedChats, fixedCombinedReadStates: preFixedReadState, tag: tag, appendMessagesFromTheSameGroup: appendMessagesFromTheSameGroup, orderStatistics: orderStatistics, useRootInterfaceStateForThread: useRootInterfaceStateForThread)
+                    signal = account.viewTracker.aroundMessageHistoryViewForLocation(context.chatLocationInput(for: chatLocation, contextHolder: chatLocationContextHolder), ignoreMessagesInTimestampRange: ignoreMessagesInTimestampRange, ignoreMessageIds: ignoreMessageIds, index: .upperBound, anchorIndex: .upperBound, count: count, trackHoles: trackHoles, ignoreRelatedChats: ignoreRelatedChats, fixedCombinedReadStates: preFixedReadState, tag: tag, appendMessagesFromTheSameGroup: appendMessagesFromTheSameGroup, orderStatistics: orderStatistics, useRootInterfaceStateForThread: useRootInterfaceStateForThread)
                 } else {
-                    signal = account.viewTracker.aroundMessageOfInterestHistoryViewForLocation(context.chatLocationInput(for: chatLocation, contextHolder: chatLocationContextHolder), ignoreMessagesInTimestampRange: ignoreMessagesInTimestampRange, ignoreMessageIds: ignoreMessageIds, count: count, tag: tag, appendMessagesFromTheSameGroup: appendMessagesFromTheSameGroup, orderStatistics: orderStatistics, additionalData: additionalData, useRootInterfaceStateForThread: useRootInterfaceStateForThread)
+                    signal = account.viewTracker.aroundMessageOfInterestHistoryViewForLocation(context.chatLocationInput(for: chatLocation, contextHolder: chatLocationContextHolder), ignoreMessagesInTimestampRange: ignoreMessagesInTimestampRange, ignoreMessageIds: ignoreMessageIds, count: count, trackHoles: trackHoles, tag: tag, appendMessagesFromTheSameGroup: appendMessagesFromTheSameGroup, orderStatistics: orderStatistics, additionalData: additionalData, useRootInterfaceStateForThread: useRootInterfaceStateForThread)
                 }
             
                 let isPossibleIntroLoaded: Signal<Bool, NoError>
@@ -235,10 +237,10 @@ func chatHistoryViewForLocation(
                 
                 let signal: Signal<(MessageHistoryView, ViewUpdateType, InitialMessageHistoryData?), NoError>
                 switch searchLocationSubject.location {
-                    case let .index(index):
-                        signal = account.viewTracker.aroundMessageHistoryViewForLocation(context.chatLocationInput(for: chatLocation, contextHolder: chatLocationContextHolder), ignoreMessagesInTimestampRange: ignoreMessagesInTimestampRange, ignoreMessageIds: ignoreMessageIds, index: .message(index), anchorIndex: .message(index), count: count, ignoreRelatedChats: ignoreRelatedChats, fixedCombinedReadStates: nil, tag: tag, appendMessagesFromTheSameGroup: appendMessagesFromTheSameGroup, orderStatistics: orderStatistics, additionalData: additionalData, useRootInterfaceStateForThread: useRootInterfaceStateForThread)
-                    case let .id(id):
-                        signal = account.viewTracker.aroundIdMessageHistoryViewForLocation(context.chatLocationInput(for: chatLocation, contextHolder: chatLocationContextHolder), ignoreMessagesInTimestampRange: ignoreMessagesInTimestampRange, ignoreMessageIds: ignoreMessageIds, count: count, ignoreRelatedChats: ignoreRelatedChats, messageId: id, tag: tag, appendMessagesFromTheSameGroup: appendMessagesFromTheSameGroup, orderStatistics: orderStatistics, additionalData: additionalData, useRootInterfaceStateForThread: useRootInterfaceStateForThread)
+                case let .index(index):
+                    signal = account.viewTracker.aroundMessageHistoryViewForLocation(context.chatLocationInput(for: chatLocation, contextHolder: chatLocationContextHolder), ignoreMessagesInTimestampRange: ignoreMessagesInTimestampRange, ignoreMessageIds: ignoreMessageIds, index: .message(index), anchorIndex: .message(index), count: count, trackHoles: trackHoles, ignoreRelatedChats: ignoreRelatedChats, fixedCombinedReadStates: nil, tag: tag, appendMessagesFromTheSameGroup: appendMessagesFromTheSameGroup, orderStatistics: orderStatistics, additionalData: additionalData, useRootInterfaceStateForThread: useRootInterfaceStateForThread)
+                case let .id(id):
+                    signal = account.viewTracker.aroundIdMessageHistoryViewForLocation(context.chatLocationInput(for: chatLocation, contextHolder: chatLocationContextHolder), ignoreMessagesInTimestampRange: ignoreMessagesInTimestampRange, ignoreMessageIds: ignoreMessageIds, count: count, trackHoles: trackHoles, ignoreRelatedChats: ignoreRelatedChats, messageId: id, tag: tag, appendMessagesFromTheSameGroup: appendMessagesFromTheSameGroup, orderStatistics: orderStatistics, additionalData: additionalData, useRootInterfaceStateForThread: useRootInterfaceStateForThread)
                 }
                 
                 return signal |> map { view, updateType, initialData -> ChatHistoryViewUpdate in
@@ -282,12 +284,12 @@ func chatHistoryViewForLocation(
                         
                         preloaded = true
                         
-                        return .HistoryView(view: view, type: reportUpdateType, scrollPosition: .index(subject: MessageHistoryScrollToSubject(index: anchorIndex, quote: searchLocationSubject.quote.flatMap { quote in MessageHistoryScrollToSubject.Quote(string: quote.string, offset: quote.offset) }, setupReply: setupReply), position: .center(.bottom), directionHint: .Down, animated: false, highlight: highlight, displayLink: false, setupReply: setupReply), flashIndicators: false, originalScrollPosition: nil, initialData: ChatHistoryCombinedInitialData(initialData: initialData, buttonKeyboardMessage: view.topTaggedMessages.first, cachedData: cachedData, cachedDataMessages: cachedDataMessages, readStateData: readStateData), id: location.id)
+                        return .HistoryView(view: view, type: reportUpdateType, scrollPosition: .index(subject: MessageHistoryScrollToSubject(index: anchorIndex, quote: searchLocationSubject.quote.flatMap { quote in MessageHistoryScrollToSubject.Quote(string: quote.string, offset: quote.offset) }, todoTaskId: searchLocationSubject.todoTaskId, setupReply: setupReply), position: .center(.bottom), directionHint: .Down, animated: false, highlight: highlight, displayLink: false, setupReply: setupReply), flashIndicators: false, originalScrollPosition: nil, initialData: ChatHistoryCombinedInitialData(initialData: initialData, buttonKeyboardMessage: view.topTaggedMessages.first, cachedData: cachedData, cachedDataMessages: cachedDataMessages, readStateData: readStateData), id: location.id)
                     }
                 }
             case let .Navigation(index, anchorIndex, count, _):
                 var first = true
-                return account.viewTracker.aroundMessageHistoryViewForLocation(context.chatLocationInput(for: chatLocation, contextHolder: chatLocationContextHolder), ignoreMessagesInTimestampRange: ignoreMessagesInTimestampRange, ignoreMessageIds: ignoreMessageIds, index: index, anchorIndex: anchorIndex, count: count, ignoreRelatedChats: ignoreRelatedChats, fixedCombinedReadStates: fixedCombinedReadStates, tag: tag, appendMessagesFromTheSameGroup: appendMessagesFromTheSameGroup, orderStatistics: orderStatistics, additionalData: additionalData, useRootInterfaceStateForThread: useRootInterfaceStateForThread) |> map { view, updateType, initialData -> ChatHistoryViewUpdate in
+                return account.viewTracker.aroundMessageHistoryViewForLocation(context.chatLocationInput(for: chatLocation, contextHolder: chatLocationContextHolder), ignoreMessagesInTimestampRange: ignoreMessagesInTimestampRange, ignoreMessageIds: ignoreMessageIds, index: index, anchorIndex: anchorIndex, count: count, trackHoles: trackHoles, ignoreRelatedChats: ignoreRelatedChats, fixedCombinedReadStates: fixedCombinedReadStates, tag: tag, appendMessagesFromTheSameGroup: appendMessagesFromTheSameGroup, orderStatistics: orderStatistics, additionalData: additionalData, useRootInterfaceStateForThread: useRootInterfaceStateForThread) |> map { view, updateType, initialData -> ChatHistoryViewUpdate in
                     let (cachedData, cachedDataMessages, readStateData) = extractAdditionalData(view: view, chatLocation: chatLocation)
                     
                     let genericType: ViewUpdateType
@@ -415,7 +417,7 @@ func fetchAndPreloadReplyThreadInfo(context: AccountContext, subject: ReplyThrea
         case .automatic:
             if let atMessageId = atMessageId {
                 input = ChatHistoryLocationInput(
-                    content: .InitialSearch(subject: MessageHistoryInitialSearchSubject(location: .id(atMessageId), quote: nil), count: 40, highlight: true, setupReply: false),
+                    content: .InitialSearch(subject: MessageHistoryInitialSearchSubject(location: .id(atMessageId)), count: 40, highlight: true, setupReply: false),
                     id: 0
                 )
             } else {

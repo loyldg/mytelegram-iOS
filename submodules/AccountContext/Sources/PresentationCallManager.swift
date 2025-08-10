@@ -6,19 +6,24 @@ import SwiftSignalKit
 import TelegramAudio
 import Display
 
+public enum CallAlreadyInProgressType {
+    case peer(EnginePeer.Id?)
+    case external
+}
+
 public enum RequestCallResult {
     case requested
-    case alreadyInProgress(EnginePeer.Id?)
+    case alreadyInProgress(CallAlreadyInProgressType)
 }
 
 public enum JoinGroupCallManagerResult {
     case joined
-    case alreadyInProgress(EnginePeer.Id?)
+    case alreadyInProgress(CallAlreadyInProgressType)
 }
 
 public enum RequestScheduleGroupCallResult {
     case success
-    case alreadyInProgress(EnginePeer.Id?)
+    case alreadyInProgress(CallAlreadyInProgressType)
 }
 
 public struct CallAuxiliaryServer {
@@ -429,6 +434,18 @@ public struct PresentationGroupCallInvitedPeer: Equatable {
     }
 }
 
+public struct PresentationGroupCallPersistentSettings: Codable {
+    public static let `default` = PresentationGroupCallPersistentSettings(
+        isMicrophoneEnabledByDefault: true
+    )
+    
+    public var isMicrophoneEnabledByDefault: Bool
+    
+    public init(isMicrophoneEnabledByDefault: Bool) {
+        self.isMicrophoneEnabledByDefault = isMicrophoneEnabledByDefault
+    }
+}
+
 public protocol PresentationGroupCall: AnyObject {
     var account: Account { get }
     var accountContext: AccountContext { get }
@@ -580,6 +597,7 @@ public protocol PresentationCallManager: AnyObject {
         reference: InternalGroupCallReference,
         beginWithVideo: Bool,
         invitePeerIds: [EnginePeer.Id],
-        endCurrentIfAny: Bool
+        endCurrentIfAny: Bool,
+        unmuteByDefault: Bool
     ) -> JoinGroupCallManagerResult
 }

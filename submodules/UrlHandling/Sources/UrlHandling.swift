@@ -33,6 +33,9 @@ extension ResolvedBotAdminRights {
         if components.contains("delete_messages") {
             rawValue |= ResolvedBotAdminRights.deleteMessages.rawValue
         }
+        if components.contains("edit_messages") {
+            rawValue |= ResolvedBotAdminRights.editMessages.rawValue
+        }
         if components.contains("restrict_members") {
             rawValue |= ResolvedBotAdminRights.restrictMembers.rawValue
         }
@@ -66,6 +69,7 @@ extension ResolvedBotAdminRights {
 public enum ParsedInternalPeerUrlParameter {
     case botStart(String)
     case groupBotStart(String, ResolvedBotAdminRights?)
+    case channelBotStart(String, ResolvedBotAdminRights?)
     case attachBotStart(String, String?)
     case gameStart(String)
     case channelMessage(Int32, Double?)
@@ -77,6 +81,8 @@ public enum ParsedInternalPeerUrlParameter {
     case text(String)
     case profile
     case referrer(String)
+    case storyFolder(Int64)
+    case giftCollection(Int64)
 }
 
 public enum ParsedInternalUrl {
@@ -87,7 +93,7 @@ public enum ParsedInternalUrl {
     
     case peer(UrlPeerReference, ParsedInternalPeerUrlParameter?)
     case peerId(PeerId)
-    case privateMessage(messageId: MessageId, threadId: Int32?, timecode: Double?)
+    case privateMessage(messageId: MessageId, threadId: Int32?, timecode: Double?, taskId: Int32?)
     case stickerPack(name: String, type: StickerPackUrlType)
     case invoice(String)
     case join(String)
@@ -293,6 +299,15 @@ public func parseInternalUrl(sharedContext: SharedAccountContext, context: Accou
                                         }
                                     }
                                     return .peer(.name(peerName), .groupBotStart(value, botAdminRights))
+                                } else if queryItem.name == "startchannel" {
+                                    var botAdminRights: ResolvedBotAdminRights?
+                                    for queryItem in queryItems {
+                                        if queryItem.name == "admin", let value = queryItem.value {
+                                            botAdminRights = ResolvedBotAdminRights(value)
+                                            break
+                                        }
+                                    }
+                                    return .peer(.name(peerName), .channelBotStart(value, botAdminRights))
                                 } else if queryItem.name == "game" {
                                     return .peer(.name(peerName), .gameStart(value))
                                 } else if ["voicechat", "videochat", "livestream"].contains(queryItem.name) {
@@ -330,6 +345,10 @@ public func parseInternalUrl(sharedContext: SharedAccountContext, context: Accou
                                     if let id = Int32(value) {
                                         return .peer(.name(peerName), .story(id))
                                     }
+                                 } else if queryItem.name == "album" {
+                                    if let id = Int64(value) {
+                                        return .peer(.name(peerName), .storyFolder(id))
+                                    }
                                  } else if queryItem.name == "ref", let referrer = queryItem.value {
                                      return .peer(.name(peerName), .referrer(referrer))
                                  }
@@ -344,7 +363,7 @@ public func parseInternalUrl(sharedContext: SharedAccountContext, context: Accou
                                     }
                                 }
                                 return .startAttach(peerName, nil, choose)
-                            } else if queryItem.name == "startgroup" || queryItem.name == "startchannel" {
+                            } else if queryItem.name == "startgroup" {
                                 var botAdminRights: ResolvedBotAdminRights?
                                 for queryItem in queryItems {
                                     if queryItem.name == "admin", let value = queryItem.value {
@@ -353,6 +372,15 @@ public func parseInternalUrl(sharedContext: SharedAccountContext, context: Accou
                                     }
                                 }
                                 return .peer(.name(peerName), .groupBotStart("", botAdminRights))
+                            } else if queryItem.name == "startchannel" {
+                                var botAdminRights: ResolvedBotAdminRights?
+                                for queryItem in queryItems {
+                                    if queryItem.name == "admin", let value = queryItem.value {
+                                        botAdminRights = ResolvedBotAdminRights(value)
+                                        break
+                                    }
+                                }
+                                return .peer(.name(peerName), .channelBotStart("", botAdminRights))
                             } else if queryItem.name == "boost" {
                                 return .peer(.name(peerName), .boost)
                             } else if queryItem.name == "profile" {
@@ -545,6 +573,7 @@ public func parseInternalUrl(sharedContext: SharedAccountContext, context: Accou
                     if let channelId = Int64(pathComponents[1]), let messageId = Int32(pathComponents[2]), channelId > 0 {
                         var threadId: Int32?
                         var timecode: Double?
+                        var taskId: Int32?
                         if let queryItems = components.queryItems {
                             for queryItem in queryItems {
                                 if let value = queryItem.value {
@@ -557,11 +586,15 @@ public func parseInternalUrl(sharedContext: SharedAccountContext, context: Accou
                                         if timestampValue != 0 {
                                             timecode = Double(timestampValue)
                                         }
+                                    } else if queryItem.name == "task" {
+                                        if let intValue = Int32(value) {
+                                            taskId = intValue
+                                        }
                                     }
                                 }
                             }
                         }
-                        return .privateMessage(messageId: MessageId(peerId: PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId)), namespace: Namespaces.Message.Cloud, id: messageId), threadId: threadId, timecode: timecode)
+                        return .privateMessage(messageId: MessageId(peerId: PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId)), namespace: Namespaces.Message.Cloud, id: messageId), threadId: threadId, timecode: timecode, taskId: taskId)
                     } else {
                         return nil
                     }
@@ -571,9 +604,16 @@ public func parseInternalUrl(sharedContext: SharedAccountContext, context: Accou
                     } else {
                         return nil
                     }
+                } else if pathComponents.count >= 3 && pathComponents[1] == "c" {
+                    if let collectionId = Int64(pathComponents[2]) {
+                        return .peer(.name(pathComponents[0]), .giftCollection(collectionId))
+                    } else {
+                        return nil
+                    }
                 } else if pathComponents.count == 4 && pathComponents[0] == "c" {
                     if let channelId = Int64(pathComponents[1]),  let threadId = Int32(pathComponents[2]), let messageId = Int32(pathComponents[3]), channelId > 0 {
                         var timecode: Double?
+                        var taskId: Int32?
                         if let queryItems = components.queryItems {
                             for queryItem in queryItems {
                                 if let value = queryItem.value {
@@ -582,11 +622,15 @@ public func parseInternalUrl(sharedContext: SharedAccountContext, context: Accou
                                         if timestampValue != 0 {
                                             timecode = Double(timestampValue)
                                         }
+                                    } else if queryItem.name == "task" {
+                                        if let intValue = Int32(value) {
+                                            taskId = intValue
+                                        }
                                     }
                                 }
                             }
                         }
-                        return .privateMessage(messageId: MessageId(peerId: PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId)), namespace: Namespaces.Message.Cloud, id: messageId), threadId: threadId, timecode: timecode)
+                        return .privateMessage(messageId: MessageId(peerId: PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId)), namespace: Namespaces.Message.Cloud, id: messageId), threadId: threadId, timecode: timecode, taskId: taskId)
                     } else {
                         return nil
                     }
@@ -618,6 +662,12 @@ public func parseInternalUrl(sharedContext: SharedAccountContext, context: Accou
                         } else {
                             return nil
                         }
+                    } else {
+                        return nil
+                    }
+                } else if pathComponents.count >= 3 && pathComponents[1] == "a" {
+                    if let folderId = Int64(pathComponents[2]) {
+                        return .peer(.name(pathComponents[0]), .storyFolder(folderId))
                     } else {
                         return nil
                     }
@@ -783,7 +833,9 @@ private func resolveInternalUrl(context: AccountContext, url: ParsedInternalUrl)
                             case let .botStart(payload):
                                 return .single(.result(.botStart(peer: peer._asPeer(), payload: payload)))
                             case let .groupBotStart(payload, adminRights):
-                                return .single(.result(.groupBotStart(peerId: peer.id, payload: payload, adminRights: adminRights)))
+                                return .single(.result(.groupBotStart(peerId: peer.id, payload: payload, adminRights: adminRights, peerType: .group)))
+                            case let .channelBotStart(payload, adminRights):
+                                return .single(.result(.groupBotStart(peerId: peer.id, payload: payload, adminRights: adminRights, peerType: .channel)))
                             case let .gameStart(game):
                                 return .single(.result(.gameStart(peerId: peer.id, game: game)))
                             case let .attachBotStart(name, payload):
@@ -905,6 +957,10 @@ private func resolveInternalUrl(context: AccountContext, url: ParsedInternalUrl)
                                 )
                             case .referrer:
                                 return .single(.result(.peer(peer._asPeer(), .chat(textInputState: nil, subject: nil, peekData: nil))))
+                            case let .storyFolder(folderId):
+                                return .single(.result(.storyFolder(peerId: peer.id, id: folderId)))
+                            case let .giftCollection(collectionId):
+                                return .single(.result(.giftCollection(peerId: peer.id, id: collectionId)))
                         }
                     } else {
                         return .single(.result(.peer(peer._asPeer(), .chat(textInputState: nil, subject: nil, peekData: nil))))
@@ -935,7 +991,7 @@ private func resolveInternalUrl(context: AccountContext, url: ParsedInternalUrl)
                     return .single(.result(.peer(nil, .info(nil))))
                 }
             })
-        case let .privateMessage(messageId, threadId, timecode):
+        case let .privateMessage(messageId, threadId, timecode, taskId):
             return context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: messageId.peerId))
             |> mapToSignal { peer -> Signal<ResolveInternalUrlResult, NoError> in
                 let foundPeer: Signal<EnginePeer?, NoError>
@@ -1018,7 +1074,7 @@ private func resolveInternalUrl(context: AccountContext, url: ParsedInternalUrl)
                                 return .result(.replyThreadMessage(replyThreadMessage: result, messageId: messageId))
                             })
                         } else {
-                            return .single(.result(.peer(foundPeer._asPeer(), .chat(textInputState: nil, subject: .message(id: .id(messageId), highlight: ChatControllerSubject.MessageHighlight(quote: nil), timecode: timecode, setupReply: false), peekData: nil))))
+                            return .single(.result(.peer(foundPeer._asPeer(), .chat(textInputState: nil, subject: .message(id: .id(messageId), highlight: ChatControllerSubject.MessageHighlight(quote: nil, todoTaskId: taskId), timecode: timecode, setupReply: false), peekData: nil))))
                         }
                     } else {
                         return .single(.result(.inaccessiblePeer))

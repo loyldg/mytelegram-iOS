@@ -79,11 +79,15 @@ public extension TelegramEngine {
         }
         
         public func peerStarsContext() -> StarsContext {
-            return StarsContext(account: self.account)
+            return StarsContext(account: self.account, ton: false)
         }
         
-        public func peerStarsRevenueContext(peerId: EnginePeer.Id) -> StarsRevenueStatsContext {
-            return StarsRevenueStatsContext(account: self.account, peerId: peerId)
+        public func peerTonContext() -> StarsContext {
+            return StarsContext(account: self.account, ton: true)
+        }
+        
+        public func peerStarsRevenueContext(peerId: EnginePeer.Id, ton: Bool) -> StarsRevenueStatsContext {
+            return StarsRevenueStatsContext(account: self.account, peerId: peerId, ton: ton)
         }
         
         public func peerStarsTransactionsContext(subject: StarsTransactionsContext.Subject, mode: StarsTransactionsContext.Mode) -> StarsTransactionsContext {
@@ -110,7 +114,7 @@ public extension TelegramEngine {
         }
         
         public func keepStarGiftsUpdated() -> Signal<Never, NoError> {
-            return _internal_keepCachedStarGiftsUpdated(postbox: self.account.postbox, network: self.account.network)
+            return _internal_keepCachedStarGiftsUpdated(postbox: self.account.postbox, network: self.account.network, accountPeerId: self.account.peerId)
         }
         
         public func convertStarGift(reference: StarGiftReference) -> Signal<Never, NoError> {
@@ -125,7 +129,7 @@ public extension TelegramEngine {
             return _internal_transferStarGift(account: self.account, prepaid: prepaid, reference: reference, peerId: peerId)
         }
         
-        public func buyStarGift(slug: String, peerId: EnginePeer.Id, price: Int64?) -> Signal<Never, BuyStarGiftError> {
+        public func buyStarGift(slug: String, peerId: EnginePeer.Id, price: CurrencyAmount?) -> Signal<Never, BuyStarGiftError> {
             return _internal_buyStarGift(account: self.account, slug: slug, peerId: peerId, price: price)
         }
         
@@ -153,8 +157,12 @@ public extension TelegramEngine {
             return _internal_toggleStarGiftsNotifications(account: self.account, peerId: peerId, enabled: enabled)
         }
         
-        public func updateStarGiftResalePrice(reference: StarGiftReference, price: Int64?) -> Signal<Never, UpdateStarGiftPriceError> {
+        public func updateStarGiftResalePrice(reference: StarGiftReference, price: CurrencyAmount?) -> Signal<Never, UpdateStarGiftPriceError> {
             return _internal_updateStarGiftResalePrice(account: self.account, reference: reference, price: price)
+        }
+        
+        public func getStarsTransaction(reference: StarsTransactionReference) -> Signal<StarsContext.State.Transaction?, NoError> {
+            return _internal_getStarsTransaction(accountPeerId: self.account.peerId, postbox: self.account.postbox, network: self.account.network, transactionReference: reference)
         }
     }
 }

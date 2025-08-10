@@ -103,6 +103,7 @@ swift_library(
         "//submodules/StickerResources",
         "//submodules/TelegramUI/Components/StorageUsageScreen",
         "//submodules/TelegramUI/Components/Stories/StoryContainerScreen",
+        "//submodules/SSignalKit/SSignalKit",
         "//submodules/SSignalKit/SwiftSignalKit",
         "//submodules/TelegramBaseController",
         "//submodules/TelegramCallsUI",
@@ -158,6 +159,8 @@ swift_library(
         "//submodules/TelegramUI/Components/BatchVideoRendering",
         "//submodules/TelegramUI/Components/GifVideoLayer",
         "//submodules/Components/HierarchyTrackingLayer",
+        "//submodules/TelegramUI/Components/PeerInfo/PeerInfoRatingComponent",
+        "//submodules/TelegramUI/Components/PeerInfo/ProfileLevelInfoScreen",
     ],
     visibility = [
         "//visibility:public",

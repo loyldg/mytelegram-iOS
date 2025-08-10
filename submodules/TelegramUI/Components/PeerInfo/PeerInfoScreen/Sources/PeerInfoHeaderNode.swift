@@ -38,6 +38,9 @@ import MultiScaleTextNode
 import PeerInfoCoverComponent
 import PeerInfoPaneNode
 import MultilineTextComponent
+import PeerInfoRatingComponent
+import UndoUI
+import ProfileLevelInfoScreen
 
 final class PeerInfoHeaderNavigationTransition {
     let sourceNavigationBar: NavigationBar
@@ -130,6 +133,8 @@ final class PeerInfoHeaderNode: ASDisplayNode {
     let titleExpandedStatusIconView: ComponentHostView<Empty>
     var titleExpandedStatusIconSize: CGSize?
     
+    var subtitleRating: ComponentView<Empty>?
+    
     let subtitleNodeContainer: ASDisplayNode
     let subtitleNodeRawContainer: ASDisplayNode
     let subtitleNode: MultiScaleTextNode
@@ -190,6 +195,9 @@ final class PeerInfoHeaderNode: ASDisplayNode {
     private var appliedCustomNavigationContentNode: PeerInfoPanelNodeNavigationContentNode?
     
     private var validLayout: (width: CGFloat, statusBarHeight: CGFloat, deviceMetrics: DeviceMetrics)?
+    
+    private var currentStarRating: TelegramStarRating?
+    private var currentPendingStarRating: TelegramStarPendingRating?
     
     init(context: AccountContext, controller: PeerInfoScreenImpl, avatarInitiallyExpanded: Bool, isOpenedFromChat: Bool, isMediaOnly: Bool, isSettings: Bool, isMyProfile: Bool, forumTopicThreadId: Int64?, chatLocation: ChatLocation) {
         self.context = context
@@ -773,6 +781,10 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             self.avatarClippingNode.clipsToBounds = true
         }
         
+        let ratingBackgroundColor: UIColor
+        let ratingBorderColor: UIColor
+        let ratingForegroundColor: UIColor
+        
         if state.isEditing {
             navigationContentsAccentColor = collapsedHeaderNavigationContentsAccentColor
             navigationContentsPrimaryColor = collapsedHeaderNavigationContentsPrimaryColor
@@ -783,6 +795,10 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             contentButtonForegroundColor = collapsedHeaderContentButtonForegroundColor
             
             headerButtonBackgroundColor = collapsedHeaderButtonBackgroundColor
+            
+            ratingBackgroundColor = presentationData.theme.list.itemCheckColors.fillColor
+            ratingBorderColor = .clear
+            ratingForegroundColor = presentationData.theme.list.itemCheckColors.foregroundColor
         } else if self.isAvatarExpanded {
             navigationContentsAccentColor = expandedAvatarNavigationContentsAccentColor
             navigationContentsPrimaryColor = expandedAvatarNavigationContentsPrimaryColor
@@ -793,6 +809,10 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             navigationContentsCanBeExpanded = false
             
             headerButtonBackgroundColor = expandedAvatarHeaderButtonBackgroundColor
+            
+            ratingBackgroundColor = .white
+            ratingBorderColor = .clear
+            ratingForegroundColor = .clear
         } else {
             let effectiveTransitionFraction: CGFloat = innerBackgroundTransitionFraction < 0.5 ? 0.0 : 1.0
             
@@ -806,10 +826,29 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                 navigationContentsCanBeExpanded = true
             }
             
-            contentButtonBackgroundColor = regularContentButtonBackgroundColor//.mixedWith(collapsedHeaderContentButtonBackgroundColor, alpha: effectiveTransitionFraction)
-            contentButtonForegroundColor = regularContentButtonForegroundColor//.mixedWith(collapsedHeaderContentButtonForegroundColor, alpha: effectiveTransitionFraction)
+            contentButtonBackgroundColor = regularContentButtonBackgroundColor
+            contentButtonForegroundColor = regularContentButtonForegroundColor
             
             headerButtonBackgroundColor = regularHeaderButtonBackgroundColor.mixedWith(collapsedHeaderButtonBackgroundColor, alpha: effectiveTransitionFraction)
+            
+            if let status = peer?.emojiStatus, case let .starGift(_, _, _, _, _, innerColor, outerColor, _, _) = status.content {
+                let _ = outerColor
+                let mainColor = UIColor(rgb: UInt32(bitPattern: innerColor))
+                
+                ratingBackgroundColor = UIColor(white: 1.0, alpha: 1.0).mixedWith(presentationData.theme.list.itemCheckColors.fillColor, alpha: effectiveTransitionFraction)
+                ratingForegroundColor = mainColor.withMultiplied(hue: 1.0, saturation: 1.1, brightness: 0.9).mixedWith(UIColor.clear, alpha: effectiveTransitionFraction)
+                ratingBorderColor = ratingForegroundColor.mixedWith(presentationData.theme.list.itemCheckColors.foregroundColor, alpha: effectiveTransitionFraction)
+            } else if let profileColor = peer?.profileColor {
+                let backgroundColors = self.context.peerNameColors.getProfile(profileColor, dark: presentationData.theme.overallDarkAppearance)
+                
+                ratingBackgroundColor = UIColor(white: 1.0, alpha: 1.0).mixedWith(presentationData.theme.list.itemCheckColors.fillColor, alpha: effectiveTransitionFraction)
+                ratingForegroundColor = backgroundColors.main.withMultiplied(hue: 1.0, saturation: 1.1, brightness: 0.9).mixedWith(UIColor.clear, alpha: effectiveTransitionFraction)
+                ratingBorderColor = ratingForegroundColor.mixedWith(presentationData.theme.list.itemCheckColors.foregroundColor, alpha: effectiveTransitionFraction)
+            } else {
+                ratingBackgroundColor = presentationData.theme.list.itemCheckColors.fillColor
+                ratingBorderColor = UIColor.clear
+                ratingForegroundColor = presentationData.theme.list.itemCheckColors.foregroundColor
+            }
         }
         
         do {
@@ -1546,6 +1585,9 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             titleCollapseFraction = max(0.0, min(1.0, contentOffset / titleCollapseOffset))
             
             subtitleFrame = CGRect(origin: CGPoint(x: 16.0, y: minTitleFrame.maxY + 2.0), size: subtitleSize)
+            if self.subtitleRating != nil {
+                subtitleFrame.origin.x += 22.0
+            }
             usernameFrame = CGRect(origin: CGPoint(x: width - usernameSize.width - 16.0, y: minTitleFrame.midY - usernameSize.height / 2.0), size: usernameSize)
         } else {
             titleFrame = CGRect(origin: CGPoint(x: floorToScreenPixels((width - titleSize.width) / 2.0), y: avatarFrame.maxY + 9.0 + (subtitleSize.height.isZero ? 11.0 : 0.0)), size: titleSize)
@@ -1910,6 +1952,67 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         let apparentHeight = (1.0 - transitionFraction) * backgroundHeight + transitionFraction * transitionSourceHeight
         let apparentBackgroundHeight = (1.0 - transitionFraction) * backgroundHeight + transitionFraction * transitionSourceHeight
         
+        var subtitleRatingSize: CGSize?
+        
+        if let cachedData = cachedData as? CachedUserData, let starRating = cachedData.starRating {
+            self.currentStarRating = starRating
+            self.currentPendingStarRating = cachedData.pendingStarRating
+            
+            #if DEBUG
+            self.currentPendingStarRating = TelegramStarPendingRating(rating: TelegramStarRating(level: starRating.level, currentLevelStars: starRating.currentLevelStars, stars: starRating.stars + 123, nextLevelStars: starRating.nextLevelStars), timestamp: Int32(Date().timeIntervalSince1970) + 60 * 60 * 24 * 3)
+            #endif
+        } else {
+            self.currentStarRating = nil
+            self.currentPendingStarRating = nil
+        }
+        
+        if let cachedData = cachedData as? CachedUserData, let starRating = cachedData.starRating {
+        //if "".isEmpty {
+            let subtitleRating: ComponentView<Empty>
+            var subtitleRatingTransition = ComponentTransition(transition)
+            if let current = self.subtitleRating {
+                subtitleRating = current
+            } else {
+                subtitleRatingTransition = .immediate
+                subtitleRating = ComponentView()
+                self.subtitleRating = subtitleRating
+            }
+            
+            subtitleRatingSize = subtitleRating.update(
+                transition: subtitleRatingTransition,
+                component: AnyComponent(PeerInfoRatingComponent(
+                    backgroundColor: ratingBackgroundColor,
+                    borderColor: ratingBorderColor,
+                    foregroundColor: ratingForegroundColor,
+                    level: Int(starRating.level),
+                    action: { [weak self] in
+                        guard let self, let peer, let currentStarRating = self.currentStarRating else {
+                            return
+                        }
+                        self.controller?.push(ProfileLevelInfoScreen(
+                            context: self.context,
+                            peer: EnginePeer(peer),
+                            starRating: currentStarRating,
+                            pendingStarRating: self.currentPendingStarRating,
+                            customTheme: self.presentationData?.theme
+                        ))
+                    }
+                )),
+                environment: {},
+                containerSize: CGSize(width: width - 12.0 * 2.0, height: 100.0)
+            )
+            if let subtitleRatingView = subtitleRating.view {
+                if subtitleRatingView.superview == nil {
+                    self.subtitleNodeContainer.view.addSubview(subtitleRatingView)
+                }
+            }
+        } else {
+            if let subtitleRating = self.subtitleRating {
+                self.subtitleRating = nil
+                subtitleRating.view?.removeFromSuperview()
+            }
+        }
+        
         if !titleSize.width.isZero && !titleSize.height.isZero {
             if self.navigationTransition != nil {
                 var neutralTitleScale: CGFloat = 1.0
@@ -1939,7 +2042,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                 let rawSubtitleFrame = CGRect(origin: CGPoint(x: subtitleCenter.x - subtitleFrame.size.width / 2.0, y: subtitleCenter.y - subtitleFrame.size.height / 2.0), size: subtitleFrame.size)
                 self.subtitleNodeRawContainer.frame = rawSubtitleFrame
                 transition.updateFrameAdditiveToCenter(node: self.subtitleNodeContainer, frame: CGRect(origin: rawSubtitleFrame.center, size: CGSize()))
-                transition.updateFrame(node: self.subtitleNode, frame: CGRect(origin: CGPoint(x: 0.0, y: subtitleOffset), size: CGSize()))
+                transition.updatePosition(node: self.subtitleNode, position: CGPoint(x: 0.0, y: subtitleOffset))
                 transition.updateFrame(node: self.panelSubtitleNode, frame: CGRect(origin: CGPoint(x: 0.0, y: panelSubtitleOffset - 1.0), size: CGSize()))
                 transition.updateFrame(node: self.usernameNode, frame: CGRect(origin: CGPoint(), size: CGSize()))
                 transition.updateSublayerTransformScale(node: self.titleNodeContainer, scale: titleScale)
@@ -1950,6 +2053,13 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                     let subtitleBadgeFrame = CGRect(origin: CGPoint(x: (subtitleSize.width + 8.0) * 0.5, y: floor((-subtitleBadgeSize.height) * 0.5)), size: subtitleBadgeSize)
                     transition.updateFrameAdditive(view: subtitleBadgeView, frame: subtitleBadgeFrame)
                     transition.updateAlpha(layer: subtitleBadgeView.layer, alpha: (1.0 - transitionFraction))
+                }
+                
+                if let subtitleRatingView = self.subtitleRating?.view, let subtitleRatingSize {
+                    let subtitleBadgeFrame: CGRect
+                    subtitleBadgeFrame = CGRect(origin: CGPoint(x: (-subtitleSize.width) * 0.5 - subtitleRatingSize.width + 1.0, y: subtitleOffset + floor((-subtitleRatingSize.height) * 0.5)), size: subtitleRatingSize)
+                    transition.updateFrameAdditive(view: subtitleRatingView, frame: subtitleBadgeFrame)
+                    transition.updateAlpha(layer: subtitleRatingView.layer, alpha: (1.0 - transitionFraction))
                 }
             } else {
                 let titleScale: CGFloat
@@ -1990,7 +2100,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                     usernameCenter.x = rawTitleFrame.center.x + (usernameCenter.x - rawTitleFrame.center.x) * subtitleScale
                     transition.updateFrameAdditiveToCenter(node: self.usernameNodeContainer, frame: CGRect(origin: usernameCenter, size: CGSize()).offsetBy(dx: 0.0, dy: titleOffset))
                 }
-                transition.updateFrame(node: self.subtitleNode, frame: CGRect(origin: CGPoint(x: 0.0, y: subtitleOffset), size: CGSize()))
+                transition.updatePosition(node: self.subtitleNode, position: CGPoint(x: 0.0, y: subtitleOffset))
                 transition.updateFrame(node: self.panelSubtitleNode, frame: CGRect(origin: CGPoint(x: 0.0, y: panelSubtitleOffset - 1.0), size: CGSize()))
                 transition.updateFrame(node: self.usernameNode, frame: CGRect(origin: CGPoint(), size: CGSize()))
                 transition.updateSublayerTransformScaleAdditive(node: self.titleNodeContainer, scale: titleScale)
@@ -2001,6 +2111,18 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                     let subtitleBadgeFrame = CGRect(origin: CGPoint(x: (subtitleSize.width + 8.0) * 0.5, y: floor((-subtitleBadgeSize.height) * 0.5)), size: subtitleBadgeSize)
                     transition.updateFrameAdditive(view: subtitleBadgeView, frame: subtitleBadgeFrame)
                     transition.updateAlpha(layer: subtitleBadgeView.layer, alpha: (1.0 - transitionFraction) * subtitleBadgeFraction)
+                }
+                
+                if let subtitleRatingView = self.subtitleRating?.view, let subtitleRatingSize {
+                    let subtitleBadgeFrame = CGRect(origin: CGPoint(x: (-subtitleSize.width) * 0.5 - subtitleRatingSize.width + 1.0, y: floor((-subtitleRatingSize.height) * 0.5)), size: subtitleRatingSize)
+                    
+                    if subtitleRatingView.frame.isEmpty {
+                        subtitleRatingView.frame = subtitleBadgeFrame
+                        subtitleRatingView.alpha = subtitleAlpha
+                    } else {
+                        transition.updateFrameAdditive(view: subtitleRatingView, frame: subtitleBadgeFrame)
+                        transition.updateAlpha(layer: subtitleRatingView.layer, alpha: subtitleAlpha)
+                    }
                 }
             }
         }
@@ -2492,6 +2614,10 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         }
         
         if let subtitleBadgeView = self.subtitleBadgeView, let result = subtitleBadgeView.hitTest(self.view.convert(point, to: subtitleBadgeView), with: event) {
+            return result
+        }
+        
+        if let subtitleRatingView = self.subtitleRating?.view, let result = subtitleRatingView.hitTest(self.view.convert(point, to: subtitleRatingView), with: event) {
             return result
         }
         
