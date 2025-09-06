@@ -180,7 +180,18 @@ public func translateMessageIds(context: AccountContext, messageIds: [EngineMess
                 }
             }
         }
-        return context.engine.messages.translateMessages(messageIds: messageIdsToTranslate, fromLang: fromLang, toLang: toLang, enableLocalIfPossible: context.sharedContext.immediateExperimentalUISettings.enableLocalTranslation)
+        
+        let translationConfiguration = TranslationConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 })
+        var enableLocalIfPossible = false
+        switch translationConfiguration.auto {
+        case .system:
+            if #available(iOS 18.0, *) {
+                enableLocalIfPossible = true
+            }
+        default:
+            break
+        }
+        return context.engine.messages.translateMessages(messageIds: messageIdsToTranslate, fromLang: fromLang, toLang: toLang, enableLocalIfPossible: enableLocalIfPossible)
         |> `catch` { _ -> Signal<Never, NoError> in
             return .complete()
         }
@@ -189,6 +200,10 @@ public func translateMessageIds(context: AccountContext, messageIds: [EngineMess
 
 public func chatTranslationState(context: AccountContext, peerId: EnginePeer.Id, threadId: Int64?) -> Signal<ChatTranslationState?, NoError> {
     if peerId.id == EnginePeer.Id.Id._internalFromInt64Value(777000) {
+        return .single(nil)
+    }
+    
+    guard canTranslateChats(context: context) else {
         return .single(nil)
     }
     

@@ -265,7 +265,7 @@ func _internal_fetchAndUpdateCachedPeerData(accountPeerId: PeerId, peerId rawPee
                             }
                             
                             switch fullUser {
-                            case let .userFull(_, _, _, _, _, _, _, _, userFullNotifySettings, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
+                            case let .userFull(_, _, _, _, _, _, _, _, userFullNotifySettings, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
                                 updatePeers(transaction: transaction, accountPeerId: accountPeerId, peers: parsedPeers)
                                 transaction.updateCurrentPeerNotificationSettings([peerId: TelegramPeerNotificationSettings(apiSettings: userFullNotifySettings)])
                             }
@@ -277,7 +277,7 @@ func _internal_fetchAndUpdateCachedPeerData(accountPeerId: PeerId, peerId rawPee
                                     previous = CachedUserData()
                                 }
                                 switch fullUser {
-                                    case let .userFull(userFullFlags, userFullFlags2, _, userFullAbout, userFullSettings, personalPhoto, profilePhoto, fallbackPhoto, _, userFullBotInfo, userFullPinnedMsgId, userFullCommonChatsCount, _, userFullTtlPeriod, userFullThemeEmoticon, _, _, _, userWallpaper, _, businessWorkHours, businessLocation, greetingMessage, awayMessage, businessIntro, birthday, personalChannelId, personalChannelMessage, starGiftsCount, starRefProgram, verification, sendPaidMessageStars, disallowedStarGifts):
+                                    case let .userFull(userFullFlags, userFullFlags2, _, userFullAbout, userFullSettings, personalPhoto, profilePhoto, fallbackPhoto, _, userFullBotInfo, userFullPinnedMsgId, userFullCommonChatsCount, _, userFullTtlPeriod, userFullThemeEmoticon, _, groupAdminRights, channelAdminRights, userWallpaper, _, businessWorkHours, businessLocation, greetingMessage, awayMessage, businessIntro, birthday, personalChannelId, personalChannelMessage, starGiftsCount, starRefProgram, verification, sendPaidMessageStars, disallowedStarGifts, starsRating, starsMyPendingRating, starsMyPendingRatingDate):
                                         let botInfo = userFullBotInfo.flatMap(BotInfo.init(apiBotInfo:))
                                         let isBlocked = (userFullFlags & (1 << 0)) != 0
                                         let voiceCallsAvailable = (userFullFlags & (1 << 4)) != 0
@@ -419,6 +419,18 @@ func _internal_fetchAndUpdateCachedPeerData(accountPeerId: PeerId, peerId rawPee
                                             }
                                         }
                                     
+                                        let botGroupAdminRights = groupAdminRights.flatMap { TelegramChatAdminRights(apiAdminRights: $0) }
+                                        let botChannelAdminRights = channelAdminRights.flatMap { TelegramChatAdminRights(apiAdminRights: $0) }
+                                    
+                                        let parsedStarRating = starsRating.flatMap(TelegramStarRating.init(apiRating:))
+                                        var pendingRating: TelegramStarPendingRating?
+                                        if let starsMyPendingRating, let starsMyPendingRatingDate {
+                                            pendingRating = TelegramStarPendingRating(
+                                                rating: TelegramStarRating(apiRating: starsMyPendingRating),
+                                                timestamp: starsMyPendingRatingDate
+                                            )
+                                        }
+                                    
                                         return previous.withUpdatedAbout(userFullAbout)
                                             .withUpdatedBotInfo(botInfo)
                                             .withUpdatedEditableBotInfo(editableBotInfo)
@@ -453,6 +465,10 @@ func _internal_fetchAndUpdateCachedPeerData(accountPeerId: PeerId, peerId rawPee
                                             .withUpdatedVerification(verification)
                                             .withUpdatedSendPaidMessageStars(sendPaidMessageStars)
                                             .withUpdatedDisallowedGifts(disallowedGifts)
+                                            .withUpdatedBotGroupAdminRights(botGroupAdminRights)
+                                            .withUpdatedBotChannelAdminRights(botChannelAdminRights)
+                                            .withUpdatedStarRating(parsedStarRating)
+                                            .withUpdatedPendingStarRating(pendingRating)
                                 }
                             })
                         }
@@ -611,14 +627,14 @@ func _internal_fetchAndUpdateCachedPeerData(accountPeerId: PeerId, peerId rawPee
                             switch result {
                                 case let .chatFull(fullChat, chats, users):
                                     switch fullChat {
-                                    case let .channelFull(_, _, _, _, _, _, _, _, _, _, _, _, _, notifySettings, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
+                                    case let .channelFull(_, _, _, _, _, _, _, _, _, _, _, _, _, notifySettings, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
                                         transaction.updateCurrentPeerNotificationSettings([peerId: TelegramPeerNotificationSettings(apiSettings: notifySettings)])
                                     case .chatFull:
                                         break
                                     }
                                     
                                     switch fullChat {
-                                        case let .channelFull(flags, flags2, _, about, participantsCount, adminsCount, kickedCount, bannedCount, _, _, _, _, chatPhoto, _, apiExportedInvite, apiBotInfos, migratedFromChatId, migratedFromMaxId, pinnedMsgId, stickerSet, minAvailableMsgId, _, linkedChatId, location, slowmodeSeconds, slowmodeNextSendDate, statsDc, _, inputCall, ttl, pendingSuggestions, groupcallDefaultJoinAs, themeEmoticon, requestsPending, _, defaultSendAs, allowedReactions, reactionsLimit, _, wallpaper, appliedBoosts, boostsUnrestrict, emojiSet, verification, starGiftsCount):
+                                        case let .channelFull(flags, flags2, _, about, participantsCount, adminsCount, kickedCount, bannedCount, _, _, _, _, chatPhoto, _, apiExportedInvite, apiBotInfos, migratedFromChatId, migratedFromMaxId, pinnedMsgId, stickerSet, minAvailableMsgId, _, linkedChatId, location, slowmodeSeconds, slowmodeNextSendDate, statsDc, _, inputCall, ttl, pendingSuggestions, groupcallDefaultJoinAs, themeEmoticon, requestsPending, _, defaultSendAs, allowedReactions, reactionsLimit, _, wallpaper, appliedBoosts, boostsUnrestrict, emojiSet, verification, starGiftsCount, sendPaidMessageStars):
                                             var channelFlags = CachedChannelFlags()
                                             if (flags & (1 << 3)) != 0 {
                                                 channelFlags.insert(.canDisplayParticipants)
@@ -827,6 +843,8 @@ func _internal_fetchAndUpdateCachedPeerData(accountPeerId: PeerId, peerId rawPee
                                                 let wallpaper = wallpaper.flatMap { TelegramWallpaper(apiWallpaper: $0) }
                                                 
                                                 let verification = verification.flatMap { PeerVerification(apiBotVerification: $0) }
+                                                
+                                                let parsedSendPaidMessageStars = sendPaidMessageStars.flatMap { StarsAmount(value: $0, nanos: 0) }
                                                                                                 
                                                 return previous.withUpdatedFlags(channelFlags)
                                                     .withUpdatedAbout(about)
@@ -862,6 +880,7 @@ func _internal_fetchAndUpdateCachedPeerData(accountPeerId: PeerId, peerId rawPee
                                                     .withUpdatedEmojiPack(emojiPack)
                                                     .withUpdatedVerification(verification)
                                                     .withUpdatedStarGiftsCount(starGiftsCount)
+                                                    .withUpdatedSendPaidMessageStars(parsedSendPaidMessageStars)
                                             })
                                         
                                             if let minAvailableMessageId = minAvailableMessageId, minAvailableMessageIdUpdated {

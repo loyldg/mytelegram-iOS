@@ -303,14 +303,20 @@ public enum PremiumSource: Equatable {
             } else {
                 return false
             }
-        case .paidMessages:
-            if case .messageEffects = rhs {
+        case .todo:
+            if case .todo = rhs {
                 return true
             } else {
                 return false
             }
         case let .auth(lhsPrice):
             if case let .auth(rhsPrice) = rhs, lhsPrice == rhsPrice {
+                return true
+            } else {
+                return false
+            }
+        case let .premiumGift(lhsFile):
+            if case let .premiumGift(rhsFile) = rhs, lhsFile.id == rhsFile.id {
                 return true
             } else {
                 return false
@@ -362,8 +368,9 @@ public enum PremiumSource: Equatable {
     case messageTags
     case folderTags
     case messageEffects
-    case paidMessages
+    case todo
     case auth(String)
+    case premiumGift(TelegramMediaFile)
     
     var identifier: String? {
         switch self {
@@ -457,10 +464,12 @@ public enum PremiumSource: Equatable {
             return "folder_tags"
         case .messageEffects:
             return "effects"
-        case .paidMessages:
-            return "paid_messages"
+        case .todo:
+            return "todo"
         case .auth:
             return "auth"
+        case .premiumGift:
+            return "premium_gift"
         }
     }
 }
@@ -489,7 +498,7 @@ public enum PremiumPerk: CaseIterable {
     case business
     case folderTags
     case messageEffects
-    case paidMessages
+    case todo
     
     case businessLocation
     case businessHours
@@ -525,7 +534,7 @@ public enum PremiumPerk: CaseIterable {
             .folderTags,
             .business,
             .messageEffects,
-            .paidMessages
+            .todo
         ]
     }
     
@@ -599,8 +608,8 @@ public enum PremiumPerk: CaseIterable {
             return "folder_tags"
         case .messageEffects:
             return "effects"
-        case .paidMessages:
-            return "paid_messages"
+        case .todo:
+            return "todo"
         case .business:
             return "business"
         case .businessLocation:
@@ -670,8 +679,8 @@ public enum PremiumPerk: CaseIterable {
             return strings.Premium_Business
         case .messageEffects:
             return strings.Premium_MessageEffects
-        case .paidMessages:
-            return strings.Premium_PaidMessages
+        case .todo:
+            return strings.Premium_Todo
         case .businessLocation:
             return strings.Business_Location
         case .businessHours:
@@ -739,8 +748,8 @@ public enum PremiumPerk: CaseIterable {
             return strings.Premium_BusinessInfo
         case .messageEffects:
             return strings.Premium_MessageEffectsInfo
-        case .paidMessages:
-            return strings.Premium_PaidMessagesInfo
+        case .todo:
+            return strings.Premium_TodoInfo
         case .businessLocation:
             return strings.Business_LocationInfo
         case .businessHours:
@@ -808,8 +817,8 @@ public enum PremiumPerk: CaseIterable {
             return "Premium/Perk/Business"
         case .messageEffects:
             return "Premium/Perk/MessageEffects"
-        case .paidMessages:
-            return "Premium/Perk/PaidMessages"
+        case .todo:
+            return "Premium/Perk/Todo"
         case .businessLocation:
             return "Premium/BusinessPerk/Location"
         case .businessHours:
@@ -840,6 +849,7 @@ struct PremiumIntroConfiguration {
             .voiceToText,
             .fasterDownload,
             .translation,
+            .todo,
             .animatedEmoji,
             .emojiStatus,
             .messageEffects,
@@ -847,7 +857,6 @@ struct PremiumIntroConfiguration {
             .colors,
             .wallpapers,
             .profileBadge,
-            .paidMessages,
             .messagePrivacy,
             .advancedChatManagement,
             .noAds,
@@ -925,7 +934,7 @@ private struct PremiumProduct: Equatable {
     let storeProduct: InAppPurchaseManager.Product
     
     var id: String {
-        return self.storeProduct.id
+        return self.option.storeProductId ?? self.storeProduct.id
     }
     
     var months: Int32 {
@@ -1542,6 +1551,10 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
             return self.products?.first(where: { $0.id == self.selectedProductId })?.id.hasSuffix(".annual") ?? false
         }
         
+        var isBiannual: Bool {
+            return self.products?.first(where: { $0.id == self.selectedProductId })?.id.hasSuffix(".biannual") ?? false
+        }
+        
         var canUpgrade: Bool {
             if let products = self.products, let current = products.first(where: { $0.isCurrent }), let transactionId = current.transactionId {
                 if self.validPurchases.contains(where: { $0.transactionId == transactionId }) {
@@ -1817,7 +1830,9 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
             
             var link = ""
             let textString: String
-            if case .emojiStatus = context.component.source {
+            if case .premiumGift = context.component.source {
+                textString = strings.Premium_PremiumGift_Description
+            } else if case .emojiStatus = context.component.source {
                 textString = strings.Premium_EmojiStatusText.replacingOccurrences(of: "#", with: "# ")
             } else if case .giftTerms = context.component.source {
                 textString = strings.Premium_PersonalDescription
@@ -1958,6 +1973,8 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                             giftTitle = strings.Premium_Monthly
                         } else if product.id.hasSuffix(".semiannual") {
                             giftTitle = strings.Premium_Semiannual
+                        } else if product.id.hasSuffix(".biannual") {
+                            giftTitle = strings.Premium_Biannual
                         } else {
                             giftTitle = strings.Premium_Annual
                         }
@@ -1982,7 +1999,10 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                             if discountValue > 0 {
                                 subtitle = "**\(defaultPrice)** \(product.price)"
                                 accessibilitySubtitle = product.price
-                                if product.months == 12 {
+                                if product.months == 24 {
+                                    subtitle = environment.strings.Premium_PricePer2Years(subtitle).string
+                                    accessibilitySubtitle = environment.strings.Premium_PricePer2Years(accessibilitySubtitle).string
+                                } else if product.months == 12 {
                                     subtitle = environment.strings.Premium_PricePerYear(subtitle).string
                                     accessibilitySubtitle = environment.strings.Premium_PricePerYear(accessibilitySubtitle).string
                                 }
@@ -2152,8 +2172,8 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                                 demoSubject = .messagePrivacy
                             case .messageEffects:
                                 demoSubject = .messageEffects
-                            case .paidMessages:
-                                demoSubject = .paidMessages
+                            case .todo:
+                                demoSubject = .todo
                             case .business:
                                 demoSubject = .business
                                 let _ = ApplicationSpecificNotice.setDismissedBusinessBadge(accountManager: accountContext.sharedContext.accountManager).startStandalone()
@@ -2162,8 +2182,21 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                             }
 
                             let isPremium = state?.isPremium == true
+                            let buttonText: String
+                            if isPremium {
+                                buttonText = strings.Common_OK
+                            } else {
+                                if state?.isAnnual == true {
+                                    buttonText = strings.Premium_SubscribeForAnnual(state?.price ?? "—").string
+                                } else if state?.isBiannual == true {
+                                    buttonText = strings.Premium_SubscribeForBiannual(state?.price ?? "—").string
+                                } else {
+                                    buttonText = strings.Premium_SubscribeFor(state?.price ?? "–").string
+                                }
+                            }
+                            
                             var dismissImpl: (() -> Void)?
-                            let controller = PremiumLimitsListScreen(context: accountContext, subject: demoSubject, source: .intro(state?.price), order: state?.configuration.perks, buttonText: isPremium ? strings.Common_OK : (state?.isAnnual == true ? strings.Premium_SubscribeForAnnual(state?.price ?? "—").string :  strings.Premium_SubscribeFor(state?.price ?? "–").string), isPremium: isPremium, forceDark: forceDark)
+                            let controller = PremiumLimitsListScreen(context: accountContext, subject: demoSubject, source: .intro(state?.price), order: state?.configuration.perks, buttonText: buttonText, isPremium: isPremium, forceDark: forceDark)
                             controller.action = { [weak state] in
                                 dismissImpl?()
                                 if state?.isPremium == false {
@@ -2392,8 +2425,23 @@ private final class PremiumIntroScreenContentComponent: CombinedComponent {
                                 default:
                                     fatalError()
                                 }
+                                
+                                
+                                let buttonText: String
+                                if isPremium {
+                                    buttonText = strings.Common_OK
+                                } else {
+                                    if state?.isAnnual == true {
+                                        buttonText = strings.Premium_SubscribeForAnnual(state?.price ?? "—").string
+                                    } else if state?.isBiannual == true {
+                                        buttonText = strings.Premium_SubscribeForBiannual(state?.price ?? "—").string
+                                    } else {
+                                        buttonText = strings.Premium_SubscribeFor(state?.price ?? "–").string
+                                    }
+                                }
+                                
                                 var dismissImpl: (() -> Void)?
-                                let controller = PremiumLimitsListScreen(context: accountContext, subject: demoSubject, source: .intro(state?.price), order: state?.configuration.businessPerks, buttonText: isPremium ? strings.Common_OK : (state?.isAnnual == true ? strings.Premium_SubscribeForAnnual(state?.price ?? "—").string :  strings.Premium_SubscribeFor(state?.price ?? "–").string), isPremium: isPremium, forceDark: forceDark)
+                                let controller = PremiumLimitsListScreen(context: accountContext, subject: demoSubject, source: .intro(state?.price), order: state?.configuration.businessPerks, buttonText: buttonText, isPremium: isPremium, forceDark: forceDark)
                                 controller.action = { [weak state] in
                                     dismissImpl?()
                                     if state?.isPremium == false {
@@ -2953,6 +3001,10 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
             return self.products?.first(where: { $0.id == self.selectedProductId })?.id.hasSuffix(".annual") ?? false
         }
         
+        var isBiannual: Bool {
+            return self.products?.first(where: { $0.id == self.selectedProductId })?.id.hasSuffix(".biannual") ?? false
+        }
+        
         var canUpgrade: Bool {
             if let products = self.products, let current = products.first(where: { $0.isCurrent }), let transactionId = current.transactionId {
                 if self.validPurchases.contains(where: { $0.transactionId == transactionId }) {
@@ -3043,7 +3095,7 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
                             products.append(PremiumProduct(option: option, storeProduct: product))
                         }
                     }
-                    
+                                        
                     strongSelf.products = products
                     strongSelf.isPremium = forceHasPremium || isPremium
                     strongSelf.otherPeerName = otherPeerName
@@ -3354,6 +3406,22 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
                     availableSize: CGSize(width: min(414.0, context.availableSize.width), height: 220.0),
                     transition: context.transition
                 )
+            } else if case let .premiumGift(file) = context.component.source, case let .accountContext(accountContext) = context.component.screenContext {
+                header = emoji.update(
+                    component: EmojiHeaderComponent(
+                        context: accountContext,
+                        animationCache: accountContext.animationCache,
+                        animationRenderer: accountContext.animationRenderer,
+                        placeholderColor: environment.theme.list.mediaPlaceholderColor,
+                        accentColor: environment.theme.list.itemAccentColor,
+                        fileId: file.fileId.id,
+                        file: file,
+                        isVisible: starIsVisible,
+                        hasIdleAnimations: state.hasIdleAnimations
+                    ),
+                    availableSize: CGSize(width: min(414.0, context.availableSize.width), height: 220.0),
+                    transition: context.transition
+                )
             } else {
                 header = star.update(
                     component: PremiumStarComponent(
@@ -3389,7 +3457,9 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
             )
             
             let titleString: String
-            if case .business = context.component.mode {
+            if case .premiumGift = context.component.source {
+                titleString = environment.strings.Premium_PremiumGift_Title
+            } else if case .business = context.component.mode {
                 titleString = environment.strings.Business_Title
             } else if case .emojiStatus = context.component.source {
                 titleString = environment.strings.Premium_Title
@@ -3681,14 +3751,20 @@ private final class PremiumIntroScreenComponent: CombinedComponent {
                 let buttonTitle: String
                 var buttonSubtitle: String?
                 if case let .auth(price) = context.component.source {
-                    buttonTitle = "Sign up for \(price)"
-                    buttonSubtitle = "Get Telegram Premium for 1 week"
+                    buttonTitle = environment.strings.Premium_Week_SignUp(price).string
+                    buttonSubtitle = environment.strings.Premium_Week_SignUpInfo
                 } else if isUnusedGift {
                     buttonTitle = environment.strings.Premium_Gift_ApplyLink
                 } else if state.isPremium == true && state.canUpgrade {
                     buttonTitle = state.isAnnual ? environment.strings.Premium_UpgradeForAnnual(state.price ?? "—").string : environment.strings.Premium_UpgradeFor(state.price ?? "—").string
                 } else {
-                    buttonTitle = state.isAnnual ? environment.strings.Premium_SubscribeForAnnual(state.price ?? "—").string : environment.strings.Premium_SubscribeFor(state.price ?? "—").string
+                    if state.isAnnual {
+                        buttonTitle = environment.strings.Premium_SubscribeForAnnual(state.price ?? "—").string
+                    } else if state.isBiannual {
+                        buttonTitle = environment.strings.Premium_SubscribeForBiannual(state.price ?? "—").string
+                    } else {
+                        buttonTitle = environment.strings.Premium_SubscribeFor(state.price ?? "–").string
+                    }
                 }
                 
                 let controller = environment.controller

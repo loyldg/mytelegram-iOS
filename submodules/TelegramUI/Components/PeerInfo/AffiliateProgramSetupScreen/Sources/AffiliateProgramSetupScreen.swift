@@ -1257,7 +1257,8 @@ final class AffiliateProgramSetupScreenComponent: Component {
                                                 simple: true,
                                                 source: .generic,
                                                 skipTermsOfService: true,
-                                                payload: nil
+                                                payload: nil,
+                                                verifyAgeCompletion: nil
                                             )
                                         } else if let navigationController = controller.navigationController as? NavigationController {
                                             component.context.sharedContext.navigateToChatController(NavigateToChatControllerParams(navigationController: navigationController, context: component.context, chatLocation: .peer(item.peer), subject: nil, keepStack: .always, animated: true, pushController: { [weak navigationController] chatController, animated, completion in
@@ -1554,8 +1555,8 @@ final class AffiliateProgramSetupScreenComponent: Component {
                 self.scrollView.contentSize = contentSize
             }
             let scrollInsets = UIEdgeInsets(top: environment.navigationHeight, left: 0.0, bottom: environment.safeInsets.bottom, right: 0.0)
-            if self.scrollView.scrollIndicatorInsets != scrollInsets {
-                self.scrollView.scrollIndicatorInsets = scrollInsets
+            if self.scrollView.verticalScrollIndicatorInsets != scrollInsets {
+                self.scrollView.verticalScrollIndicatorInsets = scrollInsets
             }
             self.ignoreScrolling = false
             

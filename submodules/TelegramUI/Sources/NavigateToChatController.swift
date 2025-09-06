@@ -20,10 +20,16 @@ import ChatControllerInteraction
 import SavedMessagesScreen
 import WallpaperGalleryScreen
 import ChatMessageNotificationItem
+import FaceScanScreen
 
 public func navigateToChatControllerImpl(_ params: NavigateToChatControllerParams) {
     if case let .peer(peer) = params.chatLocation {
         let _ = params.context.engine.peers.ensurePeerIsLocallyAvailable(peer: peer).startStandalone()
+    }
+    
+    var requiresAgeVerification: Signal<Bool, NoError> = .single(false)
+    if !params.skipAgeVerification, case let .peer(peer) = params.chatLocation {
+        requiresAgeVerification = requireAgeVerification(context: params.context, peer: peer)
     }
     
     var viewForumAsMessages: Signal<Bool, NoError> = .single(false)
@@ -67,9 +73,18 @@ public func navigateToChatControllerImpl(_ params: NavigateToChatControllerParam
         }
     }
     
-    let _ = (viewForumAsMessages
-    |> take(1)
-    |> deliverOnMainQueue).start(next: { viewForumAsMessages in
+    let _ = combineLatest(
+        queue: Queue.mainQueue(),
+        viewForumAsMessages |> take(1),
+        requiresAgeVerification
+    ).start(next: { viewForumAsMessages, requiresAgeVerification in
+        if requiresAgeVerification, let parentController = params.navigationController.viewControllers.last as? ViewController {
+            presentAgeVerification(context: params.context, parentController: parentController, completion: {
+                navigateToChatControllerImpl(params.withSkipAgeVerification(true))
+            })
+            return
+        }
+        
         if case let .peer(peer) = params.chatLocation, case let .channel(channel) = peer, channel.flags.contains(.isForum), !viewForumAsMessages {
             for controller in params.navigationController.viewControllers.reversed() {
                 var chatListController: ChatListControllerImpl?
@@ -118,9 +133,7 @@ public func navigateToChatControllerImpl(_ params: NavigateToChatControllerParam
                     controller.activateSearch(query: activateMessageSearch.1)
                 }
                 
-                if let chatListCompletion {
-                    chatListCompletion(controller)
-                }
+                chatListCompletion(controller)
             })
             
             return
@@ -148,6 +161,13 @@ public func navigateToChatControllerImpl(_ params: NavigateToChatControllerParam
                 if !canMatchThread && controller.chatLocation.peerId == params.chatLocation.asChatLocation.peerId && controller.subject == nil {
                     canMatchThread = true
                     switchToThread = true
+                }
+                if case .replyThread = params.chatLocation {
+                    if case let .replyThread(replyThread) = params.chatLocation, (replyThread.isForumPost || replyThread.isMonoforumPost) {
+                    } else {
+                        canMatchThread = false
+                        switchToThread = false
+                    }
                 }
                 
                 if controller.chatLocation.peerId == params.chatLocation.asChatLocation.peerId && canMatchThread && (controller.subject != .scheduledMessages || controller.subject == params.subject) {
@@ -191,7 +211,10 @@ public func navigateToChatControllerImpl(_ params: NavigateToChatControllerParam
                     
                     controller.purposefulAction = params.purposefulAction
                     if let activateInput = params.activateInput {
-                        controller.activateInput(type: activateInput)
+                        if case let .replyThread(replyThread) = params.chatLocation, (replyThread.isForumPost || replyThread.isMonoforumPost) {
+                        } else {
+                            controller.activateInput(type: activateInput)
+                        }
                     }
                     if params.changeColors {
                         controller.presentThemeSelection()

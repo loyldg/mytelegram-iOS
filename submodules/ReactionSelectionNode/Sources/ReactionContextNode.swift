@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import AsyncDisplayKit
 import Display
 import AnimatedStickerNode
@@ -1089,7 +1090,7 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
                     if isSelected {
                         if selectionView.superview == nil {
                             self.mirrorContentScrollView.addSubview(selectionTintView)
-                            self.scrollNode.view.addSubview(selectionView)
+                            self.scrollNode.view.insertSubview(selectionView, belowSubview: itemNode.view)
                             
                             selectionView.alpha = 1.0
                             selectionTintView.alpha = 1.0
@@ -1206,7 +1207,7 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
             let expandTintOffset: CGFloat
             if self.highlightedReaction != nil {
                 expandItemSize = floor(30.0 * 0.9)
-                expandTintOffset = contentHeight - containerHeight
+                expandTintOffset = 0.0
             } else {
                 expandItemSize = 30.0
                 expandTintOffset = 0.0

@@ -1047,8 +1047,8 @@ final class StoryItemSetViewListComponent: Component {
             if self.scrollView.contentInset != scrollContentInsets {
                 self.scrollView.contentInset = scrollContentInsets
             }
-            if self.scrollView.scrollIndicatorInsets != scrollIndicatorInsets {
-                self.scrollView.scrollIndicatorInsets = scrollIndicatorInsets
+            if self.scrollView.verticalScrollIndicatorInsets != scrollIndicatorInsets {
+                self.scrollView.verticalScrollIndicatorInsets = scrollIndicatorInsets
             }
             if self.scrollView.contentSize != scrollContentSize {
                 self.scrollView.contentSize = scrollContentSize
@@ -1604,6 +1604,7 @@ final class StoryItemSetViewListComponent: Component {
                         foreground: .white,
                         selection: UIColor(rgb: 0xffffff, alpha: 0.09)
                     ),
+                    theme: component.theme,
                     items: [
                         TabSelectorComponent.Item(
                             id: AnyHashable(ListMode.everyone.rawValue),

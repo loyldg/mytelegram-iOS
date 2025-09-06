@@ -31,6 +31,7 @@ import PeerInfoScreen
 import PeerInfoStoryGridScreen
 import ShareWithPeersScreen
 import ChatEmptyNode
+import UndoUI
 
 private class DetailsChatPlaceholderNode: ASDisplayNode, NavigationDetailsPlaceholderNode {
     private var presentationData: PresentationData
@@ -486,7 +487,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
                                     externalState.isPeerArchived = channel.storiesHidden ?? false
                                 }
                                  
-                                self.proceedWithStoryUpload(target: target, results: results, existingMedia: nil, forwardInfo: nil, externalState: externalState, commit: commit)
+                                 self.proceedWithStoryUpload(target: target, results: results, existingMedia: nil, forwardInfo: nil, externalState: externalState, commit: commit)
                                 
                                 dismissCameraImpl?()
                             })
@@ -564,6 +565,8 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         case .botPreview:
             targetPeerId = nil
         }
+        
+        let folders: [Int64] = results.first?.options.folderIds ?? []
 
         if let rootTabController = self.rootTabController {
             if let index = rootTabController.controllers.firstIndex(where: { $0 is ChatListController}) {
@@ -735,6 +738,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
                         period: result.options.timeout,
                         randomId: result.randomId,
                         forwardInfo: forwardInfo,
+                        folders: folders,
                         uploadInfo: results.count > 1 ? StoryUploadInfo(groupingId: groupingId, index: index, total: Int32(results.count)) : nil
                     )
                     |> deliverOnMainQueue).startStandalone(next: { stableId in
@@ -775,9 +779,8 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
     }
 }
 
-//Xcode 16
-#if canImport(ContactProvider)
-extension MediaEditorScreenImpl.Result: @retroactive MediaEditorScreenResult {
+#if SWIFT_PACKAGE
+extension MediaEditorScreenImpl.Result: MediaEditorScreenResult {
     public var target: Stories.PendingTarget {
         if let sendAsPeerId = self.options.sendAsPeerId {
             return .peer(sendAsPeerId)
@@ -787,7 +790,7 @@ extension MediaEditorScreenImpl.Result: @retroactive MediaEditorScreenResult {
     }
 }
 #else
-extension MediaEditorScreenImpl.Result: MediaEditorScreenResult {
+extension MediaEditorScreenImpl.Result: @retroactive MediaEditorScreenResult {
     public var target: Stories.PendingTarget {
         if let sendAsPeerId = self.options.sendAsPeerId {
             return .peer(sendAsPeerId)

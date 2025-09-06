@@ -111,7 +111,6 @@ import ChatMessageAnimatedStickerItemNode
 import ChatMessageBubbleItemNode
 import ChatNavigationButton
 import WebsiteType
-import ChatQrCodeScreen
 import PeerInfoScreen
 import MediaEditorScreen
 import WallpaperGalleryScreen
@@ -123,6 +122,7 @@ import PeerNameColorScreen
 import ChatEmptyNode
 import ChatMediaInputStickerGridItem
 import AdsInfoScreen
+import Photos
 
 extension ChatControllerImpl {
     public func presentThemeSelection() {

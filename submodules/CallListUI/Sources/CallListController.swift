@@ -278,7 +278,8 @@ public final class CallListController: TelegramBaseController {
                     reference: .id(id: call.callInfo.id, accessHash: call.callInfo.accessHash),
                     beginWithVideo: isVideo,
                     invitePeerIds: peerIds,
-                    endCurrentIfAny: true
+                    endCurrentIfAny: true,
+                    unmuteByDefault: true
                 )
                 completion?()
             }
@@ -518,10 +519,13 @@ public final class CallListController: TelegramBaseController {
             return
         }
 
+        var dismissSelectionController: (() -> Void)?
+        
         let options = [ContactListAdditionalOption(title: self.presentationData.strings.CallList_NewCallLink, icon: .generic(PresentationResourcesItemList.linkIcon(presentationData.theme)!), action: { [weak self] in
             guard let self else {
                 return
             }
+            dismissSelectionController?()
             self.createGroupCall(peerIds: [], isVideo: false)
         }, clearHighlightAutomatically: true)]
 
@@ -544,6 +548,10 @@ public final class CallListController: TelegramBaseController {
         controller.navigationPresentation = .modal
         if let navigationController = self.context.sharedContext.mainWindow?.viewController as? NavigationController {
             navigationController.pushViewController(controller)
+        }
+        
+        dismissSelectionController = { [weak controller] in
+            controller?.dismiss()
         }
 
         let _ = (controller.result
@@ -679,8 +687,11 @@ public final class CallListController: TelegramBaseController {
                 }
                 
                 if let cachedUserData = view.cachedData as? CachedUserData, cachedUserData.callsPrivate {
-                    let presentationData = strongSelf.context.sharedContext.currentPresentationData.with { $0 }
-                    strongSelf.present(textAlertController(context: strongSelf.context, title: presentationData.strings.Call_ConnectionErrorTitle, text: presentationData.strings.Call_PrivacyErrorMessage(EnginePeer(peer).compactDisplayTitle).string, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), in: .window(.root))
+                    strongSelf.push(strongSelf.context.sharedContext.makeSendInviteLinkScreen(context: strongSelf.context, subject: .groupCall(.create), peers: [TelegramForbiddenInvitePeer(
+                        peer: EnginePeer(peer),
+                        canInviteWithPremium: false,
+                        premiumRequiredToContact: false
+                    )], theme: strongSelf.presentationData.theme))
                     return
                 }
                 
@@ -714,7 +725,17 @@ public final class CallListController: TelegramBaseController {
             guard let self else {
                 return
             }
-            self.context.joinConferenceCall(call: resolvedCallLink, isVideo: conferenceCall.flags.contains(.isVideo))
+            
+            let _ = (self.context.engine.calls.getGroupCallPersistentSettings(callId: resolvedCallLink.id)
+            |> deliverOnMainQueue).startStandalone(next: { [weak self] value in
+                guard let self else {
+                    return
+                }
+                
+                let value: PresentationGroupCallPersistentSettings = value?.get(PresentationGroupCallPersistentSettings.self) ?? PresentationGroupCallPersistentSettings.default
+                
+                self.context.joinConferenceCall(call: resolvedCallLink, isVideo: conferenceCall.flags.contains(.isVideo), unmuteByDefault: value.isMicrophoneEnabledByDefault)
+            })
         }, error: { [weak self] error in
             guard let self else {
                 return

@@ -464,6 +464,7 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
             var replyMessage: Message?
             var replyForward: QuotedReplyMessageAttribute?
             var replyQuote: (quote: EngineMessageReplyQuote, isQuote: Bool)?
+            var replyTodoItemId: Int32?
             var replyStory: StoryId?
             for attribute in item.message.attributes {
                 if let attribute = attribute as? InlineBotMessageAttribute {
@@ -507,6 +508,7 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
                         replyMessage = item.message.associatedMessages[replyAttribute.messageId]
                     }
                     replyQuote = replyAttribute.quote.flatMap { ($0, replyAttribute.isQuote) }
+                    replyTodoItemId = replyAttribute.todoItemId
                 } else if let attribute = attribute as? QuotedReplyMessageAttribute {
                     replyForward = attribute
                 } else if let attribute = attribute as? ReplyStoryAttribute {
@@ -526,6 +528,7 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
                     message: replyMessage,
                     replyForward: replyForward,
                     quote: replyQuote,
+                    todoItemId: replyTodoItemId,
                     story: replyStory,
                     parentMessage: item.message,
                     constrainedSize: CGSize(width: max(0, availableWidth), height: CGFloat.greatestFiniteMagnitude),
@@ -590,7 +593,7 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
             var maxContentWidth = normalDisplaySize.width
             var actionButtonsFinalize: ((CGFloat) -> (CGSize, (_ animation: ListViewItemUpdateAnimation) -> ChatMessageActionButtonsNode))?
             if let replyMarkup = replyMarkup {
-                let (minWidth, buttonsLayout) = actionButtonsLayout(item.context, item.presentationData.theme, item.presentationData.chatBubbleCorners, item.presentationData.strings, item.controllerInteraction.presentationContext.backgroundNode, replyMarkup, item.message, maxContentWidth)
+                let (minWidth, buttonsLayout) = actionButtonsLayout(item.context, item.presentationData.theme, item.presentationData.chatBubbleCorners, item.presentationData.strings, item.controllerInteraction.presentationContext.backgroundNode, replyMarkup, [:], item.message, maxContentWidth)
                 maxContentWidth = max(maxContentWidth, minWidth)
                 actionButtonsFinalize = buttonsLayout
             }
@@ -890,9 +893,9 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
                             actionButtonsNode.frame = actionButtonsFrame
                             if actionButtonsNode !== strongSelf.actionButtonsNode {
                                 strongSelf.actionButtonsNode = actionButtonsNode
-                                actionButtonsNode.buttonPressed = { button in
+                                actionButtonsNode.buttonPressed = { button, progress in
                                     if let strongSelf = weakSelf.value {
-                                        strongSelf.performMessageButtonAction(button: button)
+                                        strongSelf.performMessageButtonAction(button: button, progress: progress)
                                     }
                                 }
                                 actionButtonsNode.buttonLongTapped = { button in
