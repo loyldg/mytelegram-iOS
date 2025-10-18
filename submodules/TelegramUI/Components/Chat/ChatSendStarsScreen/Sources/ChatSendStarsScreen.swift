@@ -1420,19 +1420,26 @@ private final class ChatSendStarsScreenComponent: Component {
                         theme: environment.theme,
                         currency: .stars,
                         action: { [weak self] in
-                            guard let self, let starsContext = context.starsContext, let navigationController = self.environment?.controller()?.navigationController as? NavigationController else {
+                            guard let self, let component = self.component, let starsContext = context.starsContext, let navigationController = self.environment?.controller()?.navigationController as? NavigationController else {
                                 return
                             }
                             self.environment?.controller()?.dismiss()
                             
+                            let targetPeerId: EnginePeer.Id
+                            switch component.initialData.subjectInitialData {
+                            case let .react(reactData):
+                                targetPeerId = reactData.peer.id
+                            }
+                            
                             let _ = (context.engine.payments.starsTopUpOptions()
-                                     |> take(1)
-                                     |> deliverOnMainQueue).startStandalone(next: { options in
+                            |> take(1)
+                            |> deliverOnMainQueue).startStandalone(next: { options in
                                 let controller = context.sharedContext.makeStarsPurchaseScreen(
                                     context: context,
                                     starsContext: starsContext,
                                     options: options,
                                     purpose: .generic,
+                                    targetPeerId: targetPeerId,
                                     completion: { _ in }
                                 )
                                 navigationController.pushViewController(controller)
@@ -1866,7 +1873,7 @@ private final class ChatSendStarsScreenComponent: Component {
             switch component.initialData.subjectInitialData {
             case let .react(reactData):
                 if let currentSentAmount = reactData.currentSentAmount {
-                    text = environment.strings.SendStarReactions_TextSentStars(Int32(currentSentAmount))
+                    text = environment.strings.SendStarReactions_TextSentStars(Int32(clamping: currentSentAmount))
                 } else {
                     text = environment.strings.SendStarReactions_TextGeneric(reactData.peer.debugDisplayTitle).string
                 }
@@ -2295,7 +2302,7 @@ private final class ChatSendStarsScreenComponent: Component {
                                     purchasePurpose = .reactions(peerId: reactData.peer.id, requiredStars: Int64(self.amount.realValue))
                                 }
                                 
-                                let purchaseScreen = component.context.sharedContext.makeStarsPurchaseScreen(context: component.context, starsContext: starsContext, options: options, purpose: purchasePurpose, completion: { result in
+                                let purchaseScreen = component.context.sharedContext.makeStarsPurchaseScreen(context: component.context, starsContext: starsContext, options: options, purpose: purchasePurpose, targetPeerId: nil, completion: { result in
                                     let _ = result
                                     //TODO:release
                                 })

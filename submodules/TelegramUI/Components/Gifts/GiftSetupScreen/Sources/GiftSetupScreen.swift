@@ -124,7 +124,6 @@ final class GiftSetupScreenComponent: Component {
         
         private var inProgress = false
         
-        
         private var previousHadInputHeight: Bool = false
         private var previousInputHeight: CGFloat?
         private var recenterOnTag: NSObject?
@@ -134,6 +133,8 @@ final class GiftSetupScreenComponent: Component {
         
         private var starImage: (UIImage, PresentationTheme)?
         
+        private var updateDisposable: Disposable?
+        
         private var optionsDisposable: Disposable?
         private(set) var options: [StarsTopUpOption] = [] {
             didSet {
@@ -141,7 +142,7 @@ final class GiftSetupScreenComponent: Component {
             }
         }
         private let optionsPromise = ValuePromise<[StarsTopUpOption]?>(nil)
-        private let previewPromise = Promise<[StarGift.UniqueGift.Attribute]?>(nil)
+        private let previewPromise = Promise<StarGiftUpgradePreview?>(nil)
         
         private var cachedChevronImage: (UIImage, PresentationTheme)?
         
@@ -173,6 +174,9 @@ final class GiftSetupScreenComponent: Component {
         }
         
         deinit {
+            self.inputMediaNodeDataDisposable?.dispose()
+            self.updateDisposable?.dispose()
+            self.optionsDisposable?.dispose()
         }
 
         func scrollToTop() {
@@ -236,7 +240,7 @@ final class GiftSetupScreenComponent: Component {
                             title: environment.strings.Gift_Send_Premium_Confirmation_Title,
                             text: environment.strings.Gift_Send_Premium_Confirmation_Text(
                                 peer.compactDisplayTitle,
-                                environment.strings.Gift_Send_Premium_Confirmation_Text_Stars(Int32(starsPrice))
+                                environment.strings.Gift_Send_Premium_Confirmation_Text_Stars(Int32(clamping: starsPrice))
                             ).string,
                             actions: [
                                 TextAlertAction(type: .genericAction, title: environment.strings.Common_Cancel, action: {}),
@@ -427,7 +431,7 @@ final class GiftSetupScreenComponent: Component {
                                 file: starGift.file,
                                 loop: true,
                                 title: nil,
-                                text: presentationData.strings.Gift_Send_Success(self.peerMap[peerId]?.compactDisplayTitle ?? "", presentationData.strings.Gift_Send_Success_Stars(Int32(starGift.price))).string,
+                                text: presentationData.strings.Gift_Send_Success(self.peerMap[peerId]?.compactDisplayTitle ?? "", presentationData.strings.Gift_Send_Success_Stars(Int32(clamping: starGift.price))).string,
                                 undoText: nil,
                                 customAction: nil
                             ),
@@ -453,6 +457,34 @@ final class GiftSetupScreenComponent: Component {
                             controllers.append(chatController)
                         }
                         navigationController.setViewControllers(controllers, animated: true)
+                        
+                        
+                        if case let .starGift(starGift, _) = component.subject, let perUserLimit = starGift.perUserLimit {
+                            Queue.mainQueue().after(0.5) {
+                                let remains = max(0, perUserLimit.remains - 1)
+                                let text: String
+                                if remains == 0 {
+                                    text = presentationData.strings.Gift_Send_Limited_Success_Text_None
+                                } else {
+                                    text = presentationData.strings.Gift_Send_Limited_Success_Text(remains)
+                                }
+                                let tooltipController = UndoOverlayController(
+                                    presentationData: presentationData,
+                                    content: .sticker(
+                                        context: context,
+                                        file: starGift.file,
+                                        loop: true,
+                                        title: presentationData.strings.Gift_Send_Limited_Success_Title,
+                                        text: text,
+                                        undoText: nil,
+                                        customAction: nil
+                                    ),
+                                    position: .top,
+                                    action: { _ in return true }
+                                )
+                                (navigationController.viewControllers.last as? ViewController)?.present(tooltipController, in: .current)
+                            }
+                        }
                     }
                     
                     if let completion {
@@ -477,7 +509,12 @@ final class GiftSetupScreenComponent: Component {
                     case .starGiftUserLimit:
                         if let perUserLimit, let giftFile {
                             let text = presentationData.strings.Gift_Options_Gift_BuyLimitReached(perUserLimit)
-                            let undoController = UndoOverlayController(presentationData: presentationData, content: .sticker(context: component.context, file: giftFile, loop: true, title: nil, text: text, undoText: nil, customAction: nil), action: { _ in return false })
+                            let undoController = UndoOverlayController(
+                                presentationData: presentationData,
+                                content: .sticker(context: component.context, file: giftFile, loop: true, title: nil, text: text, undoText: nil, customAction: nil),
+                                elevatedLayout: true,
+                                action: { _ in return false }
+                            )
                             controller.present(undoController, in: .current)
                             return
                         }
@@ -510,6 +547,7 @@ final class GiftSetupScreenComponent: Component {
                         starsContext: starsContext,
                         options: options ?? [],
                         purpose: .starGift(peerId: component.peerId, requiredStars: finalPrice),
+                        targetPeerId: nil,
                         completion: { [weak self, weak starsContext] stars in
                             guard let self, let starsContext else {
                                 return
@@ -727,9 +765,10 @@ final class GiftSetupScreenComponent: Component {
                     if let _ = gift.upgradeStars {
                         self.previewPromise.set(
                             component.context.engine.payments.starGiftUpgradePreview(giftId: gift.id)
-                            |> map(Optional.init)
                         )
                     }
+                    
+                    self.updateDisposable = component.context.engine.payments.keepStarGiftsUpdated().start()
                 }
             }
             
@@ -752,6 +791,10 @@ final class GiftSetupScreenComponent: Component {
             } else if isChannelGift {
                 navigationTitleString = environment.strings.Gift_SendChannel_Title
             } else {
+                var peerName = peerName
+                if peerName.count > 22 {
+                    peerName = "\(peerName.prefix(22))…"
+                }
                 navigationTitleString = environment.strings.Gift_Send_TitleTo(peerName).string
             }
             let navigationTitleSize = self.navigationTitle.update(
@@ -826,11 +869,13 @@ final class GiftSetupScreenComponent: Component {
                         transition: transition,
                         component: AnyComponent(ListSectionComponent(
                             theme: environment.theme,
+                            style: .glass,
                             header: nil,
                             footer: nil,
                             items: [
                                 AnyComponentWithIdentity(id: 0, component: AnyComponent(ListActionItemComponent(
                                     theme: environment.theme,
+                                    style: .glass,
                                     title: AnyComponent(VStack([
                                         AnyComponentWithIdentity(id: AnyHashable(0), component: AnyComponent(
                                             MultilineTextComponent(
@@ -955,6 +1000,7 @@ final class GiftSetupScreenComponent: Component {
                 transition: transition,
                 component: AnyComponent(ListSectionComponent(
                     theme: environment.theme,
+                    style: .glass,
                     header: nil,
                     footer: introFooter,
                     items: introSectionItems
@@ -1091,6 +1137,7 @@ final class GiftSetupScreenComponent: Component {
                         transition: transition,
                         component: AnyComponent(ListSectionComponent(
                             theme: environment.theme,
+                            style: .glass,
                             header: nil,
                             footer: AnyComponent(MultilineTextWithEntitiesComponent(
                                 context: component.context,
@@ -1116,7 +1163,7 @@ final class GiftSetupScreenComponent: Component {
                                     |> filter { $0 != nil }
                                     |> take(1)
                                     |> deliverOnMainQueue).startStandalone(next: { options in
-                                        let purchaseController = component.context.sharedContext.makeStarsPurchaseScreen(context: component.context, starsContext: starsContext, options: options ?? [], purpose: .generic, completion: { stars in
+                                        let purchaseController = component.context.sharedContext.makeStarsPurchaseScreen(context: component.context, starsContext: starsContext, options: options ?? [], purpose: .generic, targetPeerId: nil, completion: { stars in
                                             starsContext.add(balance: StarsAmount(value: stars, nanos: 0))
                                         })
                                         controller.push(purchaseController)
@@ -1126,6 +1173,7 @@ final class GiftSetupScreenComponent: Component {
                             items: [
                                 AnyComponentWithIdentity(id: 0, component: AnyComponent(ListActionItemComponent(
                                     theme: environment.theme,
+                                    style: .glass,
                                     title: AnyComponent(VStack([
                                         AnyComponentWithIdentity(id: AnyHashable(0), component: AnyComponent(
                                             MultilineTextWithEntitiesComponent(
@@ -1195,6 +1243,7 @@ final class GiftSetupScreenComponent: Component {
                         transition: transition,
                         component: AnyComponent(ListSectionComponent(
                             theme: environment.theme,
+                            style: .glass,
                             header: nil,
                             footer: AnyComponent(MultilineTextComponent(
                                 text: .plain(upgradeFooterText),
@@ -1214,13 +1263,13 @@ final class GiftSetupScreenComponent: Component {
                                     }
                                     let _ = (self.previewPromise.get()
                                     |> take(1)
-                                    |> deliverOnMainQueue).start(next: { [weak self] attributes in
-                                        guard let self, let component = self.component, let controller = self.environment?.controller(), let attributes else {
+                                    |> deliverOnMainQueue).start(next: { [weak self] upgradePreview in
+                                        guard let self, let component = self.component, let controller = self.environment?.controller(), let upgradePreview else {
                                             return
                                         }
                                         let previewController = GiftViewScreen(
                                             context: component.context,
-                                            subject: .upgradePreview(attributes, peerName)
+                                            subject: .upgradePreview(upgradePreview.attributes, peerName)
                                         )
                                         controller.push(previewController)
                                     })
@@ -1229,6 +1278,7 @@ final class GiftSetupScreenComponent: Component {
                             items: [
                                 AnyComponentWithIdentity(id: 0, component: AnyComponent(ListActionItemComponent(
                                     theme: environment.theme,
+                                    style: .glass,
                                     title: AnyComponent(VStack([
                                         AnyComponentWithIdentity(id: AnyHashable(0), component: AnyComponent(
                                             MultilineTextWithEntitiesComponent(
@@ -1277,6 +1327,7 @@ final class GiftSetupScreenComponent: Component {
                     transition: transition,
                     component: AnyComponent(ListSectionComponent(
                         theme: environment.theme,
+                        style: .glass,
                         header: nil,
                         footer: AnyComponent(MultilineTextComponent(
                             text: .plain(NSAttributedString(
@@ -1289,6 +1340,7 @@ final class GiftSetupScreenComponent: Component {
                         items: [
                             AnyComponentWithIdentity(id: 0, component: AnyComponent(ListActionItemComponent(
                                 theme: environment.theme,
+                                style: .glass,
                                 title: AnyComponent(VStack([
                                     AnyComponentWithIdentity(id: AnyHashable(0), component: AnyComponent(MultilineTextComponent(
                                         text: .plain(NSAttributedString(
@@ -1388,14 +1440,15 @@ final class GiftSetupScreenComponent: Component {
                 buttonAttributedString.addAttribute(.kern, value: 2.0, range: NSRange(range, in: buttonAttributedString.string))
             }
             
+            let buttonSideInset = environment.safeInsets.left + 36.0
             let buttonSize = self.button.update(
                 transition: transition,
                 component: AnyComponent(ButtonComponent(
                     background: ButtonComponent.Background(
+                        style: .glass,
                         color: environment.theme.list.itemCheckColors.fillColor,
                         foreground: environment.theme.list.itemCheckColors.foregroundColor,
                         pressedColor: environment.theme.list.itemCheckColors.fillColor.withMultipliedAlpha(0.9),
-                        cornerRadius: 10.0,
                         isShimmering: true
                     ),
                     content: AnyComponentWithIdentity(
@@ -1409,7 +1462,7 @@ final class GiftSetupScreenComponent: Component {
                     }
                 )),
                 environment: {},
-                containerSize: CGSize(width: availableSize.width - sideInset * 2.0, height: buttonHeight)
+                containerSize: CGSize(width: availableSize.width - buttonSideInset * 2.0, height: buttonHeight)
             )
             if let buttonView = self.button.view {
                 if buttonView.superview == nil {
@@ -1857,7 +1910,7 @@ private struct GiftConfiguration {
     }
 }
 
-public struct PremiumGiftProduct: Equatable {
+public final class PremiumGiftProduct: Equatable {
     public let giftOption: CachedPremiumGiftOption
     public let starsGiftOption: CachedPremiumGiftOption?
     public let storeProduct: InAppPurchaseManager.Product?
@@ -1889,5 +1942,21 @@ public struct PremiumGiftProduct: Equatable {
         self.starsGiftOption = starsGiftOption
         self.storeProduct = storeProduct
         self.discount = discount
+    }
+    
+    public static func ==(lhs: PremiumGiftProduct, rhs: PremiumGiftProduct) -> Bool {
+        if lhs.giftOption != rhs.giftOption {
+            return false
+        }
+        if lhs.starsGiftOption != rhs.starsGiftOption {
+            return false
+        }
+        if lhs.storeProduct != rhs.storeProduct {
+            return false
+        }
+        if lhs.discount != rhs.discount {
+            return false
+        }
+        return true
     }
 }

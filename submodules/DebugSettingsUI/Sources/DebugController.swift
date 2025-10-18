@@ -73,7 +73,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
     case keepChatNavigationStack(PresentationTheme, Bool)
     case skipReadHistory(PresentationTheme, Bool)
     case alwaysDisplayTyping(Bool)
-    case dustEffect(Bool)
+    case debugRatingLayout(Bool)
     case crashOnSlowQueries(PresentationTheme, Bool)
     case crashOnMemoryPressure(PresentationTheme, Bool)
     case clearTips(PresentationTheme)
@@ -95,7 +95,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
     case knockoutWallpaper(PresentationTheme, Bool)
     case experimentalCompatibility(Bool)
     case enableDebugDataDisplay(Bool)
-    case rippleEffect(Bool)
+    case fakeGlass(Bool)
     case browserExperiment(Bool)
     case allForumsHaveTabs(Bool)
     case enableReactionOverrides(Bool)
@@ -108,6 +108,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
     case experimentalCallMute(Bool)
     case playerV2(Bool)
     case devRequests(Bool)
+    case enableUpdates(Bool)
     case fakeAds(Bool)
     case enableLocalTranslation(Bool)
     case preferredVideoCodec(Int, String, String?, Bool)
@@ -132,9 +133,9 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return DebugControllerSection.logging.rawValue
         case .webViewInspection, .resetWebViewCache:
             return DebugControllerSection.web.rawValue
-        case .keepChatNavigationStack, .skipReadHistory, .alwaysDisplayTyping, .dustEffect, .crashOnSlowQueries, .crashOnMemoryPressure:
+        case .keepChatNavigationStack, .skipReadHistory, .alwaysDisplayTyping, .debugRatingLayout, .crashOnSlowQueries, .crashOnMemoryPressure:
             return DebugControllerSection.experiments.rawValue
-        case .clearTips, .resetNotifications, .crash, .fillLocalSavedMessageCache, .resetDatabase, .resetDatabaseAndCache, .resetHoles, .resetTagHoles, .reindexUnread, .resetCacheIndex, .reindexCache, .resetBiometricsData, .optimizeDatabase, .photoPreview, .knockoutWallpaper, .compressedEmojiCache, .storiesJpegExperiment, .checkSerializedData, .enableQuickReactionSwitch, .experimentalCompatibility, .enableDebugDataDisplay, .rippleEffect, .browserExperiment, .allForumsHaveTabs, .enableReactionOverrides, .restorePurchases, .disableReloginTokens, .liveStreamV2, .experimentalCallMute, .playerV2, .devRequests, .fakeAds, .enableLocalTranslation:
+        case .clearTips, .resetNotifications, .crash, .fillLocalSavedMessageCache, .resetDatabase, .resetDatabaseAndCache, .resetHoles, .resetTagHoles, .reindexUnread, .resetCacheIndex, .reindexCache, .resetBiometricsData, .optimizeDatabase, .photoPreview, .knockoutWallpaper, .compressedEmojiCache, .storiesJpegExperiment, .checkSerializedData, .enableQuickReactionSwitch, .experimentalCompatibility, .enableDebugDataDisplay, .fakeGlass, .browserExperiment, .allForumsHaveTabs, .enableReactionOverrides, .restorePurchases, .disableReloginTokens, .liveStreamV2, .experimentalCallMute, .playerV2, .devRequests, .enableUpdates, .fakeAds, .enableLocalTranslation:
             return DebugControllerSection.experiments.rawValue
         case .logTranslationRecognition, .resetTranslationStates:
             return DebugControllerSection.translation.rawValue
@@ -185,7 +186,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return 16
         case .alwaysDisplayTyping:
             return 17
-        case .dustEffect:
+        case .debugRatingLayout:
             return 18
         case .crashOnSlowQueries:
             return 20
@@ -225,7 +226,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return 37
         case .enableDebugDataDisplay:
             return 38
-        case .rippleEffect:
+        case .fakeGlass:
             return 39
         case .browserExperiment:
             return 40
@@ -261,8 +262,10 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return 56
         case .enableLocalTranslation:
             return 57
+        case .enableUpdates:
+            return 58
         case let .preferredVideoCodec(index, _, _, _):
-            return 58 + index
+            return 59 + index
         case .disableVideoAspectScaling:
             return 100
         case .enableNetworkFramework:
@@ -970,11 +973,11 @@ private enum DebugControllerEntry: ItemListNodeEntry {
                     return settings
                 }).start()
             })
-        case let .dustEffect(value):
-            return ItemListSwitchItem(presentationData: presentationData, title: "Dust Debug", value: value, sectionId: self.section, style: .blocks, updated: { value in
+        case let .debugRatingLayout(value):
+            return ItemListSwitchItem(presentationData: presentationData, title: "Rating Debug", value: value, sectionId: self.section, style: .blocks, updated: { value in
                 let _ = updateExperimentalUISettingsInteractively(accountManager: arguments.sharedContext.accountManager, { settings in
                     var settings = settings
-                    settings.dustEffect = value
+                    settings.debugRatingLayout = value
                     return settings
                 }).start()
             })
@@ -1255,12 +1258,12 @@ private enum DebugControllerEntry: ItemListNodeEntry {
                     })
                 }).start()
             })
-        case let .rippleEffect(value):
-            return ItemListSwitchItem(presentationData: presentationData, title: "Ripple", value: value, sectionId: self.section, style: .blocks, updated: { value in
+        case let .fakeGlass(value):
+            return ItemListSwitchItem(presentationData: presentationData, title: "Fake glass", value: value, sectionId: self.section, style: .blocks, updated: { value in
                 let _ = arguments.sharedContext.accountManager.transaction ({ transaction in
                     transaction.updateSharedData(ApplicationSpecificSharedDataKeys.experimentalUISettings, { settings in
                         var settings = settings?.get(ExperimentalUISettings.self) ?? ExperimentalUISettings.defaultSettings
-                        settings.rippleEffect = value
+                        settings.fakeGlass = value
                         return PreferencesEntry(settings)
                     })
                 }).start()
@@ -1375,6 +1378,16 @@ private enum DebugControllerEntry: ItemListNodeEntry {
                     transaction.updateSharedData(ApplicationSpecificSharedDataKeys.experimentalUISettings, { settings in
                         var settings = settings?.get(ExperimentalUISettings.self) ?? ExperimentalUISettings.defaultSettings
                         settings.devRequests = value
+                        return PreferencesEntry(settings)
+                    })
+                }).start()
+            })
+        case let .enableUpdates(value):
+            return ItemListSwitchItem(presentationData: presentationData, title: "Enable Updates", value: value, sectionId: self.section, style: .blocks, updated: { value in
+                let _ = arguments.sharedContext.accountManager.transaction ({ transaction in
+                    transaction.updateSharedData(ApplicationSpecificSharedDataKeys.experimentalUISettings, { settings in
+                        var settings = settings?.get(ExperimentalUISettings.self) ?? ExperimentalUISettings.defaultSettings
+                        settings.enableUpdates = value
                         return PreferencesEntry(settings)
                     })
                 }).start()
@@ -1506,7 +1519,7 @@ private func debugControllerEntries(sharedContext: SharedAccountContext, present
         entries.append(.skipReadHistory(presentationData.theme, experimentalSettings.skipReadHistory))
         #endif
         entries.append(.alwaysDisplayTyping(experimentalSettings.alwaysDisplayTyping))
-        entries.append(.dustEffect(experimentalSettings.dustEffect))
+        entries.append(.debugRatingLayout(experimentalSettings.debugRatingLayout))
     }
     entries.append(.crashOnSlowQueries(presentationData.theme, experimentalSettings.crashOnLongQueries))
     entries.append(.crashOnMemoryPressure(presentationData.theme, experimentalSettings.crashOnMemoryPressure))
@@ -1530,7 +1543,7 @@ private func debugControllerEntries(sharedContext: SharedAccountContext, present
         entries.append(.knockoutWallpaper(presentationData.theme, experimentalSettings.knockoutWallpaper))
         entries.append(.experimentalCompatibility(experimentalSettings.experimentalCompatibility))
         entries.append(.enableDebugDataDisplay(experimentalSettings.enableDebugDataDisplay))
-        entries.append(.rippleEffect(experimentalSettings.rippleEffect))
+        entries.append(.fakeGlass(experimentalSettings.fakeGlass))
         #if DEBUG
         entries.append(.browserExperiment(experimentalSettings.browserExperiment))
         #else
@@ -1561,6 +1574,7 @@ private func debugControllerEntries(sharedContext: SharedAccountContext, present
         entries.append(.devRequests(experimentalSettings.devRequests))
         entries.append(.fakeAds(experimentalSettings.fakeAds))
         entries.append(.enableLocalTranslation(experimentalSettings.enableLocalTranslation))
+        entries.append(.enableUpdates(experimentalSettings.enableUpdates))
     }
 
     if isMainApp {

@@ -38,7 +38,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
     public var enableVoipTcp: Bool
     public var experimentalCompatibility: Bool
     public var enableDebugDataDisplay: Bool
-    public var rippleEffect: Bool
+    public var fakeGlass: Bool
     public var compressedEmojiCache: Bool
     public var localTranscription: Bool
     public var enableReactionOverrides: Bool
@@ -68,6 +68,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
     public var conferenceDebug: Bool
     public var checkSerializedData: Bool
     public var allForumsHaveTabs: Bool
+    public var debugRatingLayout: Bool
+    public var enableUpdates: Bool
     
     public static var defaultSettings: ExperimentalUISettings {
         return ExperimentalUISettings(
@@ -84,7 +86,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
             enableVoipTcp: false,
             experimentalCompatibility: false,
             enableDebugDataDisplay: false,
-            rippleEffect: false,
+            fakeGlass: false,
             compressedEmojiCache: false,
             localTranscription: false,
             enableReactionOverrides: false,
@@ -113,7 +115,9 @@ public struct ExperimentalUISettings: Codable, Equatable {
             fakeAds: false,
             conferenceDebug: false,
             checkSerializedData: false,
-            allForumsHaveTabs: false
+            allForumsHaveTabs: false,
+            debugRatingLayout: false,
+            enableUpdates: false
         )
     }
     
@@ -131,7 +135,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         enableVoipTcp: Bool,
         experimentalCompatibility: Bool,
         enableDebugDataDisplay: Bool,
-        rippleEffect: Bool,
+        fakeGlass: Bool,
         compressedEmojiCache: Bool,
         localTranscription: Bool,
         enableReactionOverrides: Bool,
@@ -160,7 +164,9 @@ public struct ExperimentalUISettings: Codable, Equatable {
         fakeAds: Bool,
         conferenceDebug: Bool,
         checkSerializedData: Bool,
-        allForumsHaveTabs: Bool
+        allForumsHaveTabs: Bool,
+        debugRatingLayout: Bool,
+        enableUpdates: Bool
     ) {
         self.keepChatNavigationStack = keepChatNavigationStack
         self.skipReadHistory = skipReadHistory
@@ -175,7 +181,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.enableVoipTcp = enableVoipTcp
         self.experimentalCompatibility = experimentalCompatibility
         self.enableDebugDataDisplay = enableDebugDataDisplay
-        self.rippleEffect = rippleEffect
+        self.fakeGlass = fakeGlass
         self.compressedEmojiCache = compressedEmojiCache
         self.localTranscription = localTranscription
         self.enableReactionOverrides = enableReactionOverrides
@@ -205,6 +211,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.conferenceDebug = conferenceDebug
         self.checkSerializedData = checkSerializedData
         self.allForumsHaveTabs = allForumsHaveTabs
+        self.debugRatingLayout = debugRatingLayout
+        self.enableUpdates = enableUpdates
     }
     
     public init(from decoder: Decoder) throws {
@@ -223,7 +231,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.enableVoipTcp = (try container.decodeIfPresent(Int32.self, forKey: "enableVoipTcp") ?? 0) != 0
         self.experimentalCompatibility = (try container.decodeIfPresent(Int32.self, forKey: "experimentalCompatibility") ?? 0) != 0
         self.enableDebugDataDisplay = (try container.decodeIfPresent(Int32.self, forKey: "enableDebugDataDisplay") ?? 0) != 0
-        self.rippleEffect = (try container.decodeIfPresent(Int32.self, forKey: "rippleEffect") ?? 0) != 0
+        self.fakeGlass = (try container.decodeIfPresent(Int32.self, forKey: "fakeGlass") ?? 0) != 0
         self.compressedEmojiCache = (try container.decodeIfPresent(Int32.self, forKey: "compressedEmojiCache") ?? 0) != 0
         self.localTranscription = (try container.decodeIfPresent(Int32.self, forKey: "localTranscription") ?? 0) != 0
         self.enableReactionOverrides = try container.decodeIfPresent(Bool.self, forKey: "enableReactionOverrides") ?? false
@@ -253,6 +261,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.conferenceDebug = try container.decodeIfPresent(Bool.self, forKey: "conferenceDebug") ?? false
         self.checkSerializedData = try container.decodeIfPresent(Bool.self, forKey: "checkSerializedData") ?? false
         self.allForumsHaveTabs = try container.decodeIfPresent(Bool.self, forKey: "allForumsHaveTabs") ?? false
+        self.debugRatingLayout = try container.decodeIfPresent(Bool.self, forKey: "debugRatingLayout") ?? false
+        self.enableUpdates = try container.decodeIfPresent(Bool.self, forKey: "enableUpdates") ?? false
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -271,7 +281,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         try container.encode((self.enableVoipTcp ? 1 : 0) as Int32, forKey: "enableVoipTcp")
         try container.encode((self.experimentalCompatibility ? 1 : 0) as Int32, forKey: "experimentalCompatibility")
         try container.encode((self.enableDebugDataDisplay ? 1 : 0) as Int32, forKey: "enableDebugDataDisplay")
-        try container.encode((self.rippleEffect ? 1 : 0) as Int32, forKey: "rippleEffect")
+        try container.encode((self.fakeGlass ? 1 : 0) as Int32, forKey: "fakeGlass")
         try container.encode((self.compressedEmojiCache ? 1 : 0) as Int32, forKey: "compressedEmojiCache")
         try container.encode((self.localTranscription ? 1 : 0) as Int32, forKey: "localTranscription")
         try container.encode(self.enableReactionOverrides, forKey: "enableReactionOverrides")
@@ -301,6 +311,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         try container.encodeIfPresent(self.conferenceDebug, forKey: "conferenceDebug")
         try container.encodeIfPresent(self.checkSerializedData, forKey: "checkSerializedData")
         try container.encodeIfPresent(self.allForumsHaveTabs, forKey: "allForumsHaveTabs")
+        try container.encodeIfPresent(self.debugRatingLayout, forKey: "debugRatingLayout")
+        try container.encodeIfPresent(self.enableUpdates, forKey: "enableUpdates")
     }
 }
 

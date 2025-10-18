@@ -126,13 +126,13 @@ private func synchronizeMarkAllUnseen(transaction: Transaction, postbox: Postbox
         return network.request(Api.functions.messages.getUnreadMentions(flags: 0, peer: inputPeer, topMsgId: nil, offsetId: maxId, addOffset: maxId == 0 ? 0 : -1, limit: limit, maxId: maxId == 0 ? 0 : (maxId + 1), minId: 1))
         |> mapToSignal { result -> Signal<[MessageId], MTRpcError> in
             switch result {
-                case let .messages(messages, _, _):
+                case let .messages(messages, _, _, _):
                     return .single(messages.compactMap({ $0.id() }))
                 case let .channelMessages(_, _, _, _, messages, _, _, _):
                     return .single(messages.compactMap({ $0.id() }))
                 case .messagesNotModified:
                     return .single([])
-                case let .messagesSlice(_, _, _, _, _, messages, _, _):
+                case let .messagesSlice(_, _, _, _, _, messages, _, _, _):
                     return .single(messages.compactMap({ $0.id() }))
             }
         }
@@ -223,7 +223,7 @@ func markUnseenPersonalMessage(transaction: Transaction, id: MessageId, addSynch
                         break loop
                     }
                 }
-                return .update(StoreMessage(id: currentMessage.id, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init), authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
+                return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init), authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
             })
             
             if addSynchronizeAction {
@@ -348,7 +348,7 @@ func markUnseenReactionMessage(transaction: Transaction, id: MessageId, addSynch
                 }
                 var tags = currentMessage.tags
                 tags.remove(.unseenReaction)
-                return .update(StoreMessage(id: currentMessage.id, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init), authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
+                return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init), authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
             })
             
             if addSynchronizeAction {

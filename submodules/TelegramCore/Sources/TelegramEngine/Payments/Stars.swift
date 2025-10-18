@@ -720,6 +720,15 @@ private extension StarsContext.State.Transaction {
             if (apiFlags & (1 << 22)) != 0 {
                 flags.insert(.isStarGiftResale)
             }
+            if (apiFlags & (1 << 24)) != 0 {
+                flags.insert(.isPostsSearch)
+            }
+            if (apiFlags & (1 << 25)) != 0 {
+                flags.insert(.isStarGiftPrepaidUpgrade)
+            }
+            if (apiFlags & (1 << 26)) != 0 {
+                flags.insert(.isStarGiftDropOriginalDetails)
+            }
             
             let media = extendedMedia.flatMap({ $0.compactMap { textMediaAndExpirationTimerFromApiMedia($0, PeerId(0)).media } }) ?? []
             let _ = subscriptionPeriod
@@ -774,6 +783,9 @@ public final class StarsContext {
                 public static let isPaidMessage = Flags(rawValue: 1 << 7)
                 public static let isBusinessTransfer = Flags(rawValue: 1 << 8)
                 public static let isStarGiftResale = Flags(rawValue: 1 << 9)
+                public static let isPostsSearch = Flags(rawValue: 1 << 10)
+                public static let isStarGiftPrepaidUpgrade = Flags(rawValue: 1 << 11)
+                public static let isStarGiftDropOriginalDetails = Flags(rawValue: 1 << 12)
             }
             
             public enum Peer: Equatable {
@@ -1618,10 +1630,10 @@ func _internal_sendStarsPaymentForm(account: Account, formId: Int64, source: Bot
                                                     receiptMessageId = id
                                                 }
                                             }
-                                        case .giftCode, .stars, .starsGift, .starsChatSubscription, .starGift, .starGiftUpgrade, .starGiftTransfer, .premiumGift, .starGiftResale:
+                                        case .giftCode, .stars, .starsGift, .starsChatSubscription, .starGift, .starGiftUpgrade, .starGiftTransfer, .premiumGift, .starGiftResale, .starGiftPrepaidUpgrade, .starGiftDropOriginalDetails:
                                             receiptMessageId = nil
                                         }
-                                    } else if case let .starGiftUnique(gift, _, _, savedToProfile, canExportDate, transferStars, _, peerId, _, savedId, _, canTransferDate, canResaleDate) = action.action, case let .Id(messageId) = message.id {
+                                    } else if case let .starGiftUnique(gift, _, _, savedToProfile, canExportDate, transferStars, _, _, peerId, _, savedId, _, canTransferDate, canResaleDate, dropOriginalDetailsStars, _) = action.action, case let .Id(messageId) = message.id {
                                         let reference: StarGiftReference
                                         if let peerId, let savedId {
                                             reference = .peer(peerId: peerId, id: savedId)
@@ -1645,7 +1657,10 @@ func _internal_sendStarsPaymentForm(account: Account, formId: Int64, source: Bot
                                             transferStars: transferStars,
                                             canTransferDate: canTransferDate,
                                             canResaleDate: canResaleDate,
-                                            collectionIds: nil
+                                            collectionIds: nil,
+                                            prepaidUpgradeHash: nil,
+                                            upgradeSeparate: false,
+                                            dropOriginalDetailsStars: dropOriginalDetailsStars
                                         )
                                     }
                                 }
@@ -1658,7 +1673,9 @@ func _internal_sendStarsPaymentForm(account: Account, formId: Int64, source: Bot
             }
         }
         |> `catch` { error -> Signal<SendBotPaymentResult, SendBotPaymentFormError> in
-            if error.errorDescription == "BOT_PRECHECKOUT_FAILED" {
+            if error.errorCode == 406 {
+                return .fail(.serverProvided(error.errorDescription))
+            } else if error.errorDescription == "BOT_PRECHECKOUT_FAILED" {
                 return .fail(.precheckoutFailed)
             } else if error.errorDescription == "PAYMENT_FAILED" {
                 return .fail(.paymentFailed)
@@ -1668,6 +1685,8 @@ func _internal_sendStarsPaymentForm(account: Account, formId: Int64, source: Bot
                 return .fail(.alreadyPaid)
             } else if error.errorDescription == "STARGIFT_USAGE_LIMITED" {
                 return .fail(.starGiftOutOfStock)
+            } else if error.errorDescription == "STARGIFT_USER_USAGE_LIMITED" {
+                return .fail(.starGiftUserLimit)
             }
             return .fail(.generic)
         }

@@ -161,6 +161,12 @@ swift_library(
         "//submodules/Components/HierarchyTrackingLayer",
         "//submodules/TelegramUI/Components/PeerInfo/PeerInfoRatingComponent",
         "//submodules/TelegramUI/Components/PeerInfo/ProfileLevelInfoScreen",
+        "//submodules/TelegramUI/Components/TabSelectorComponent",
+        "//submodules/TelegramUI/Components/BottomButtonPanelComponent",
+        "//submodules/TelegramUI/Components/MarqueeComponent",
+        "//submodules/TelegramUI/Components/MediaManager/PeerMessagesMediaPlaylist",
+        "//submodules/TelegramUI/Components/TextFieldComponent",
+        "//submodules/TelegramUI/Components/EdgeEffect",
     ],
     visibility = [
         "//visibility:public",

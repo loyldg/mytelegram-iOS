@@ -87,14 +87,6 @@ private class ReplyThreadHistoryContextImpl {
             var indices = transaction.getThreadIndexHoles(peerId: data.peerId, threadId: data.threadId, namespace: Namespaces.Message.Cloud)
             indices.subtract(data.initialFilledHoles)
             
-            /*let isParticipant = transaction.getPeerChatListIndex(data.messageId.peerId) != nil
-            if isParticipant {
-                let historyHoles = transaction.getHoles(peerId: data.messageId.peerId, namespace: Namespaces.Message.Cloud)
-                indices.formIntersection(historyHoles)
-            }
-            
-            print("after intersection: \(indices)")*/
-            
             if let maxMessageId = data.maxMessage {
                 indices.remove(integersIn: Int(maxMessageId.id + 1) ..< Int(Int32.max))
             } else {
@@ -233,7 +225,7 @@ private class ReplyThreadHistoryContextImpl {
                                         )
                                     }
                                 }
-                                return .update(StoreMessage(id: currentMessage.id, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init), authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
+                                return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init), authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
                             })
                         }
                         
@@ -246,6 +238,8 @@ private class ReplyThreadHistoryContextImpl {
                             if channel.isMonoForum {
                                 isMonoforumPost = true
                             }
+                        } else if let user = transaction.getPeer(parsedIndex.id.peerId) as? TelegramUser, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum) {
+                            isForumPost = true
                         }
                         
                         return .single(DiscussionMessage(
@@ -343,6 +337,9 @@ private class ReplyThreadHistoryContextImpl {
                 return (nil, nil, nil, nil)
             }
             
+            var markMainAsRead = false
+            markMainAsRead = !"".isEmpty
+            
             if var data = transaction.getMessageHistoryThreadInfo(peerId: peerId, threadId: threadId)?.data.get(MessageHistoryThreadData.self) {
                 if messageIndex.id.id >= data.maxIncomingReadId {
                     if let count = transaction.getThreadMessageCount(peerId: peerId, threadId: threadId, namespace: Namespaces.Message.Cloud, fromIdExclusive: data.maxIncomingReadId, toIndex: messageIndex) {
@@ -366,6 +363,10 @@ private class ReplyThreadHistoryContextImpl {
                         transaction.setMessageHistoryThreadInfo(peerId: peerId, threadId: threadId, info: entry)
                     }
                 }
+            }
+            
+            if markMainAsRead {
+                _internal_applyMaxReadIndexInteractively(transaction: transaction, stateManager: account.stateManager, index: messageIndex)
             }
             
             var subPeerId: Api.InputPeer?
@@ -400,7 +401,7 @@ private class ReplyThreadHistoryContextImpl {
                                                 attributes[j] = updatedAttribute
                                             }
                                         }
-                                        return .update(StoreMessage(id: currentMessage.id, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init), authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
+                                        return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init), authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
                                     })
                                 }
                             }
@@ -602,7 +603,7 @@ public struct ChatReplyThreadMessage: Equatable {
     public var isNotAvailable: Bool
     
     public var effectiveMessageId: MessageId? {
-        if self.peerId.namespace == Namespaces.Peer.CloudChannel {
+        if self.peerId.namespace == Namespaces.Peer.CloudChannel || self.isForumPost {
             return MessageId(peerId: self.peerId, namespace: Namespaces.Message.Cloud, id: Int32(clamping: self.threadId))
         } else {
             return nil
@@ -720,6 +721,8 @@ func _internal_fetchChannelReplyThreadMessage(account: Account, messageId: Messa
                         if channel.isMonoForum {
                             isMonoforumPost = true
                         }
+                    } else if let user = transaction.getPeer(parsedIndex.id.peerId) as? TelegramUser, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum) {
+                        isForumPost = true
                     }
                     
                     return DiscussionMessage(

@@ -368,7 +368,7 @@ private final class UniversalVideoGalleryItemOverlayNode: GalleryOverlayContentN
                                     self.updateLayout(size: validLayout.size, metrics: validLayout.metrics, insets: validLayout.insets, isHidden: false, transition: .immediate)
                                 }
                                 context.engine.messages.markAdAction(opaqueId: ad.opaqueId, media: false, fullscreen: false)
-                                self.performAction?(.url(url: ad.url, concealed: false, dismiss: false))
+                                self.performAction?(.url(url: ad.url, concealed: false, forceExternal: true, dismiss: false))
                             }
                         },
                         moreAction: { [weak self] sourceNode in
@@ -776,7 +776,7 @@ final class SettingsHeaderButton: HighlightableButtonNode {
                 component: AnyComponent(BadgeComponent(
                     text: badgeText,
                     font: self.badgeFont,
-                    cornerRadius: 3.0,
+                    cornerRadius: .custom(3.0),
                     insets: UIEdgeInsets(top: 1.33, left: 1.66, bottom: 1.33, right: 1.66),
                     outerInsets: UIEdgeInsets(top: 1.0, left: 1.0, bottom: 1.0, right: 1.0)
                 )),
@@ -818,7 +818,7 @@ final class SettingsHeaderButton: HighlightableButtonNode {
                 component: AnyComponent(BadgeComponent(
                     text: badgeText,
                     font: self.badgeFont,
-                    cornerRadius: 3.0,
+                    cornerRadius: .custom(3.0),
                     insets: UIEdgeInsets(top: 1.33, left: 1.66, bottom: 1.33, right: 1.66),
                     outerInsets: UIEdgeInsets(top: 1.0, left: 1.0, bottom: 1.0, right: 1.0)
                 )),

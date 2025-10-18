@@ -1043,16 +1043,25 @@ public final class ChatListView {
         for entry in mutableView.sampledState.entries {
             switch entry {
             case let .MessageEntry(entryData):
+                if let peer = entryData.renderedPeer.peer, peer.id.namespace._internalGetInt32Value() == 2, let associatedPeerId = peer.associatedPeerId, associatedPeerId.namespace._internalGetInt32Value() == 0 {
+                    continue
+                }
+                
+                let index = entryData.index
+                let messages = entryData.messages
+                let readState = entryData.readState
+                let forumTopicData = entryData.displayAsRegularChat ? nil : entryData.forumTopicData
+                
                 entries.append(.MessageEntry(ChatListEntry.MessageEntryData(
-                    index: entryData.index,
-                    messages: entryData.messages,
-                    readState: entryData.readState,
+                    index: index,
+                    messages: messages,
+                    readState: readState,
                     isRemovedFromTotalUnreadCount: entryData.isRemovedFromTotalUnreadCount,
                     embeddedInterfaceState: entryData.embeddedInterfaceState,
                     renderedPeer: entryData.renderedPeer,
                     presence: entryData.presence,
                     summaryInfo: entryData.tagSummaryInfo,
-                    forumTopicData: entryData.displayAsRegularChat ? nil : entryData.forumTopicData,
+                    forumTopicData: forumTopicData,
                     topForumTopics: entryData.displayAsRegularChat ? [] : entryData.topForumTopics,
                     hasFailed: entryData.hasFailedMessages,
                     isContact: entryData.isContact,
@@ -1061,6 +1070,7 @@ public final class ChatListView {
                     extractedCachedData: entryData.extractedCachedData
                 )))
             case let .HoleEntry(hole):
+                entries.removeAll()
                 entries.append(.HoleEntry(hole))
             case .IntermediateMessageEntry:
                 assertionFailure()
