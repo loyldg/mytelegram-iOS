@@ -199,7 +199,7 @@ extension ChatControllerImpl {
         
         var historyNavigationStack = ChatHistoryNavigationStack()
         
-        let chatThemeEmoticonPromise = Promise<String?>()
+        let chatThemePromise = Promise<ChatTheme?>()
         let chatWallpaperPromise = Promise<TelegramWallpaper?>()
         
         private(set) var inviteRequestsContext: PeerInvitationImportersContext?
@@ -1425,12 +1425,18 @@ extension ChatControllerImpl {
                         )
                         
                         var customMessageCount: Int?
-                        if let peer = peerView.peers[peerView.peerId] as? TelegramChannel, peer.isMonoForum {
+                        var customSubtitle: String?
+                        customSubtitle = nil
+                        if let peer = peerView.peers[peerView.peerId] as? TelegramChannel {
+                            if peer.isMonoForum {
+                            } else {
+                                customMessageCount = savedMessagesPeer?.messageCount ?? 0
+                            }
                         } else {
                             customMessageCount = savedMessagesPeer?.messageCount ?? 0
                         }
                         
-                        strongSelf.state.chatTitleContent = .peer(peerView: mappedPeerData, customTitle: nil, customSubtitle: nil, onlineMemberCount: (nil, nil), isScheduledMessages: false, isMuted: false, customMessageCount: customMessageCount, isEnabled: true)
+                        strongSelf.state.chatTitleContent = .peer(peerView: mappedPeerData, customTitle: nil, customSubtitle: customSubtitle, onlineMemberCount: (nil, nil), isScheduledMessages: false, isMuted: false, customMessageCount: customMessageCount, isEnabled: true)
                         
                         strongSelf.state.peerView = peerView
                         
@@ -1517,7 +1523,14 @@ extension ChatControllerImpl {
                         }
                         
                         if let threadInfo = messageAndTopic.threadData?.info {
-                            strongSelf.state.chatTitleContent = .peer(peerView: ChatTitleContent.PeerData(peerView: peerView), customTitle: threadInfo.title, customSubtitle: nil, onlineMemberCount: onlineMemberCount, isScheduledMessages: false, isMuted: peerIsMuted, customMessageCount: messageAndTopic.messageCount == 0 ? nil : messageAndTopic.messageCount, isEnabled: true)
+                            var customSubtitle: String?
+                            if messageAndTopic.messageCount == 0, let peer = peerView.peers[peerView.peerId] as? TelegramUser {
+                                if peer.isForum {
+                                    customSubtitle = strongSelf.presentationData.strings.Chat_GenericForuThreadStatus
+                                }
+                            }
+                            
+                            strongSelf.state.chatTitleContent = .peer(peerView: ChatTitleContent.PeerData(peerView: peerView), customTitle: threadInfo.title, customSubtitle: customSubtitle, onlineMemberCount: onlineMemberCount, isScheduledMessages: false, isMuted: peerIsMuted, customMessageCount: messageAndTopic.messageCount == 0 ? nil : messageAndTopic.messageCount, isEnabled: true)
                             
                             let avatarContent: EmojiStatusComponent.Content
                             if chatLocation.threadId == 1 {
@@ -1535,6 +1548,9 @@ extension ChatControllerImpl {
                                 infoContextActionIsEnabled = true
                             }
                             strongSelf.state.infoAvatar = .emojiStatus(content: avatarContent, contextActionIsEnabled: infoContextActionIsEnabled)
+                        } else if chatLocation.threadId == EngineMessage.newTopicThreadId {
+                            strongSelf.state.chatTitleContent = .custom(strongSelf.presentationData.strings.Chat_MessageHeaderBotNewThread, nil, false)
+                            strongSelf.state.infoAvatar = nil
                         } else {
                             strongSelf.state.chatTitleContent = .replyThread(type: replyThreadType, count: count)
                         }
@@ -2150,8 +2166,23 @@ extension ChatControllerImpl {
                     topPinnedMessage = ChatControllerImpl.topPinnedScrollMessage(context: context, chatLocation: chatLocation, historyNode: historyNode, scrolledToMessageId: self.scrolledToMessageId.get())
                 }
                 
+                let cachedData: Signal<(CachedPeerData?, [MessageId: Message]), NoError>
+                if let peerId = chatLocation.peerId {
+                    cachedData = context.account.postbox.combinedView(keys: [
+                        .cachedPeerDataWithMessages(peerId: peerId)
+                    ]) |> map { views -> (CachedPeerData?, [MessageId: Message]) in
+                        guard let view = views.views[.cachedPeerDataWithMessages(peerId: peerId)] as? CachedPeerDataView else {
+                            return (nil, [:])
+                        }
+                        return (view.cachedPeerData, view.associatedMessages)
+                    }
+                } else {
+                    cachedData = .single((nil, [:]))
+                }
+                
                 self.cachedDataDisposable?.dispose()
-                self.cachedDataDisposable = combineLatest(queue: .mainQueue(), historyNode.cachedPeerDataAndMessages,
+                self.cachedDataDisposable = combineLatest(queue: .mainQueue(),
+                    cachedData,
                     hasPendingMessages,
                     isTopReplyThreadMessageShown,
                     topPinnedMessage,
@@ -2170,19 +2201,19 @@ extension ChatControllerImpl {
                     let (cachedData, messages) = cachedDataAndMessages
                     
                     if cachedData != nil {
-                        var themeEmoticon: String? = nil
+                        var chatTheme: ChatTheme? = nil
                         var chatWallpaper: TelegramWallpaper?
                         if let cachedData = cachedData as? CachedUserData {
-                            themeEmoticon = cachedData.themeEmoticon
+                            chatTheme = cachedData.chatTheme
                             chatWallpaper = cachedData.wallpaper
                         } else if let cachedData = cachedData as? CachedGroupData {
-                            themeEmoticon = cachedData.themeEmoticon
+                            chatTheme = cachedData.chatTheme
                         } else if let cachedData = cachedData as? CachedChannelData {
-                            themeEmoticon = cachedData.themeEmoticon
+                            chatTheme = cachedData.chatTheme
                             chatWallpaper = cachedData.wallpaper
                         }
                         
-                        strongSelf.chatThemeEmoticonPromise.set(.single(themeEmoticon))
+                        strongSelf.chatThemePromise.set(.single(chatTheme))
                         strongSelf.chatWallpaperPromise.set(.single(chatWallpaper))
                     }
                     
@@ -2237,7 +2268,7 @@ extension ChatControllerImpl {
                                 pinnedMessageId = replyThreadMessage.effectiveTopId
                             }
                             if let pinnedMessageId = pinnedMessageId {
-                                if let message = messages?[pinnedMessageId] {
+                                if let message = messages[pinnedMessageId] {
                                     pinnedMessage = ChatPinnedMessage(message: message, index: 0, totalCount: 1, topMessageId: message.id)
                                 }
                             }

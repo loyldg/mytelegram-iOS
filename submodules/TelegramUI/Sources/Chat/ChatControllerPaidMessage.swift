@@ -76,7 +76,7 @@ extension ChatControllerImpl {
                                     guard let self else {
                                         return
                                     }
-                                    let controller = self.context.sharedContext.makeStarsPurchaseScreen(context: self.context, starsContext: starsContext, options: options, purpose: .sendMessage(peerId: peer.id, requiredStars: totalAmount), completion: { stars in
+                                    let controller = self.context.sharedContext.makeStarsPurchaseScreen(context: self.context, starsContext: starsContext, options: options, purpose: .sendMessage(peerId: peer.id, requiredStars: totalAmount), targetPeerId: nil, completion: { stars in
                                         starsContext.add(balance: StarsAmount(value: stars, nanos: 0))
                                         let _ = (starsContext.onUpdate
                                         |> deliverOnMainQueue).start(next: {
@@ -111,7 +111,7 @@ extension ChatControllerImpl {
         }
         
         let title = self.presentationData.strings.Chat_PaidMessage_Sent_Title(count)
-        let text = self.presentationData.strings.Chat_PaidMessage_Sent_Text(self.presentationData.strings.Chat_PaidMessage_Sent_Text_Stars(Int32(amount.value * Int64(count)))).string
+        let text = self.presentationData.strings.Chat_PaidMessage_Sent_Text(self.presentationData.strings.Chat_PaidMessage_Sent_Text_Stars(Int32(clamping: amount.value * Int64(count)))).string
         let textItems: [AnimatedTextComponent.Item] = [
             AnimatedTextComponent.Item(id: 0, content: .text(text))
         ]

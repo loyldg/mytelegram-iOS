@@ -525,8 +525,8 @@ public extension TelegramEngine.EngineData.Item {
             }
         }
         
-        public struct ThemeEmoticon: TelegramEngineDataItem, TelegramEngineMapKeyDataItem, PostboxViewDataItem {
-            public typealias Result = Optional<String>
+        public struct ChatTheme: TelegramEngineDataItem, TelegramEngineMapKeyDataItem, PostboxViewDataItem {
+            public typealias Result = Optional<TelegramCore.ChatTheme>
 
             fileprivate var id: EnginePeer.Id
             public var mapKey: EnginePeer.Id {
@@ -549,11 +549,11 @@ public extension TelegramEngine.EngineData.Item {
                     return nil
                 }
                 if let cachedData = cachedPeerData as? CachedUserData {
-                    return cachedData.themeEmoticon
+                    return cachedData.chatTheme
                 } else if let cachedData = cachedPeerData as? CachedGroupData {
-                    return cachedData.themeEmoticon
+                    return cachedData.chatTheme
                 } else if let cachedData = cachedPeerData as? CachedChannelData {
-                    return cachedData.themeEmoticon
+                    return cachedData.chatTheme
                 } else {
                     return nil
                 }
@@ -2265,6 +2265,39 @@ public extension TelegramEngine.EngineData.Item {
             }
         }
         
+        public struct CopyProtectionEnabled: TelegramEngineDataItem, TelegramEngineMapKeyDataItem, PostboxViewDataItem {
+            public typealias Result = Bool
+
+            fileprivate var id: EnginePeer.Id
+            public var mapKey: EnginePeer.Id {
+                return self.id
+            }
+
+            public init(id: EnginePeer.Id) {
+                self.id = id
+            }
+
+            var key: PostboxViewKey {
+                return .basicPeer(self.id)
+            }
+
+            func extract(view: PostboxView) -> Result {
+                guard let view = view as? BasicPeerView else {
+                    preconditionFailure()
+                }
+                guard let peer = view.peer else {
+                    return false
+                }
+                if let group = peer as? TelegramGroup {
+                    return group.flags.contains(.copyProtectionEnabled)
+                } else if let channel = peer as? TelegramChannel {
+                    return channel.flags.contains(.copyProtectionEnabled)
+                } else {
+                    return false
+                }
+            }
+        }
+        
         public struct BotPreview: TelegramEngineDataItem, TelegramEngineMapKeyDataItem, PostboxViewDataItem {
             public typealias Result = CachedUserData.BotPreview?
 
@@ -2377,6 +2410,36 @@ public extension TelegramEngine.EngineData.Item {
             }
         }
         
+        public struct ProfileMainTab: TelegramEngineDataItem, TelegramEngineMapKeyDataItem, PostboxViewDataItem {
+            public typealias Result = Optional<TelegramProfileTab>
+            
+            fileprivate var id: EnginePeer.Id
+            public var mapKey: EnginePeer.Id {
+                return self.id
+            }
+            
+            public init(id: EnginePeer.Id) {
+                self.id = id
+            }
+            
+            var key: PostboxViewKey {
+                return .cachedPeerData(peerId: self.id)
+            }
+            
+            func extract(view: PostboxView) -> Result {
+                guard let view = view as? CachedPeerDataView else {
+                    preconditionFailure()
+                }
+                if let cachedData = view.cachedPeerData as? CachedUserData {
+                    return cachedData.mainProfileTab
+                } else if let cachedData = view.cachedPeerData as? CachedChannelData {
+                    return cachedData.mainProfileTab
+                } else {
+                    return nil
+                }
+            }
+        }
+                
         public struct BotPrivacyPolicyUrl: TelegramEngineDataItem, TelegramEngineMapKeyDataItem, PostboxViewDataItem {
             public typealias Result = Optional<String>
             

@@ -756,6 +756,7 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                         var profile: Bool = false
                         var referrer: String?
                         var albumId: Int64?
+                        var collectionId: Int64?
                         if let queryItems = components.queryItems {
                             for queryItem in queryItems {
                                 if let value = queryItem.value {
@@ -793,6 +794,8 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                                         referrer = value
                                     } else if queryItem.name == "album" {
                                         albumId = Int64(value)
+                                    } else if queryItem.name == "collection" {
+                                        collectionId = Int64(value)
                                     }
                                 } else if ["voicechat", "videochat", "livestream"].contains(queryItem.name) {
                                     voiceChat = ""
@@ -866,6 +869,8 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                                 result += "?attach=\(attach)"
                             } else if let albumId {
                                 result += "/a/\(albumId)"
+                            } else if let collectionId {
+                                result += "/c/\(collectionId)"
                             }
                             if let startAttach = startAttach {
                                 if attach == nil {
@@ -1032,6 +1037,35 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                             }
                         }
                     }
+                } else if parsedUrl.host == "send_gift" {
+                    var recipient: String?
+                    if let components = URLComponents(string: "/?" + query) {
+                        if let queryItems = components.queryItems {
+                            for queryItem in queryItems {
+                                if let value = queryItem.value {
+                                    if queryItem.name == "to" {
+                                        recipient = value
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let recipient {
+                        if let id = Int64(recipient) {
+                            handleResolvedUrl(.sendGift(peerId: PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(id))))
+                        } else {
+                            let _ = (context.engine.peers.resolvePeerByName(name: recipient, referrer: nil)
+                            |> deliverOnMainQueue).start(next: { result in
+                                guard case let .result(peer) = result, let peer else {
+                                    return
+                                }
+                                handleResolvedUrl(.sendGift(peerId: peer.id))
+                            })
+                        }
+                    } else {
+                        handleResolvedUrl(.sendGift(peerId: nil))
+                    }
                 }
             } else {
                 if parsedUrl.host == "stars" {
@@ -1082,6 +1116,8 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                             context.sharedContext.presentGlobalController(alertController, nil)
                         }
                     })
+                } else if parsedUrl.host == "send_gift" {
+                    handleResolvedUrl(.sendGift(peerId: nil))
                 }
             }
             
@@ -1101,7 +1137,7 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
         }
         
         if isInternetUrl {
-            if parsedUrl.host == "t.me" || parsedUrl.host == "telegram.me" {
+            if parsedUrl.host == "t.me" || parsedUrl.host == "telegram.me" || parsedUrl.host == "telegram.dog" {
                 handleInternalUrl(parsedUrl.absoluteString)
             } else {
                 let settings = combineLatest(context.sharedContext.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.webBrowserSettings, ApplicationSpecificSharedDataKeys.presentationPasscodeSettings]), context.sharedContext.accountManager.accessChallengeData())
@@ -1123,11 +1159,6 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                     return settings
                 }
 
-//                var isCompact = false
-//                if let metrics = navigationController?.validLayout?.metrics, case .compact = metrics.widthClass {
-//                    isCompact = true
-//                }
-                
                 let _ = (settings
                 |> deliverOnMainQueue).startStandalone(next: { settings in
                     var isTonSite = false
@@ -1180,7 +1211,7 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
     }
     
     if parsedUrl.scheme == "http" || parsedUrl.scheme == "https" {
-        let nativeHosts = ["t.me", "telegram.me"]
+        let nativeHosts = ["t.me", "telegram.me", "telegram.dog"]
         if let host = parsedUrl.host, nativeHosts.contains(host) {
             continueHandling()
         } else {

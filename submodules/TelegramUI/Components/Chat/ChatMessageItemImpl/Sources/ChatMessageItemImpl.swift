@@ -345,6 +345,14 @@ public final class ChatMessageItemImpl: ChatMessageItem, CustomStringConvertible
                             if let threadInfo = content.firstMessage.associatedThreadInfo {
                                 headerSeparableThreadId = content.firstMessage.threadId
                                 headerDisplayPeer = ChatMessageDateHeader.HeaderData(contents: .thread(id: threadId, info: threadInfo))
+                            } else if content.firstMessage.threadId == EngineMessage.newTopicThreadId {
+                                headerSeparableThreadId = content.firstMessage.threadId
+                                headerDisplayPeer = ChatMessageDateHeader.HeaderData(contents: .thread(id: threadId, info: Message.AssociatedThreadInfo(
+                                    title: presentationData.strings.Chat_MessageHeaderBotNewThread,
+                                    icon: nil,
+                                    iconColor: 0,
+                                    isClosed: false
+                                )))
                             }
                         }
                     }

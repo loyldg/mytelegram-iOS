@@ -224,7 +224,11 @@ public final class TelegramChannel: Peer, Equatable {
     }
     
     public var additionalAssociatedPeerId: PeerId? {
-        self.linkedMonoforumId
+        return self.linkedMonoforumId
+    }
+    
+    public var notificationSettingsPeerId: PeerId? {
+        return nil
     }
     
     public var indexName: PeerIndexNameRepresentation {
@@ -257,8 +261,6 @@ public final class TelegramChannel: Peer, Equatable {
         }
         return mediaIds
     }
-    
-    public let notificationSettingsPeerId: PeerId? = nil
     
     public var timeoutAttribute: UInt32? {
         if let emojiStatus = self.emojiStatus {
@@ -365,17 +367,6 @@ public final class TelegramChannel: Peer, Equatable {
         self.verificationIconFileId = decoder.decodeOptionalInt64ForKey("vfid")
         self.sendPaidMessageStars = decoder.decodeCodable(StarsAmount.self, forKey: "sendPaidMessageStars")
         self.linkedMonoforumId = decoder.decodeOptionalInt64ForKey("lmid").flatMap(PeerId.init)
-        
-        #if DEBUG && false
-        var builder = FlatBufferBuilder(initialSize: 1024)
-        let offset = self.encodeToFlatBuffers(builder: &builder)
-        builder.finish(offset: offset)
-        let serializedData = builder.data
-        var byteBuffer = ByteBuffer(data: serializedData)
-        let deserializedValue = FlatBuffers_getRoot(byteBuffer: &byteBuffer) as TelegramCore_TelegramChannel
-        let parsedValue = try! TelegramChannel(flatBuffersObject: deserializedValue)
-        assert(self == parsedValue)
-        #endif
     }
     
     public func encode(_ encoder: PostboxEncoder) {
@@ -732,9 +723,6 @@ public final class TelegramChannel: Peer, Equatable {
         TelegramCore_TelegramChannel.add(verificationIconFileId: self.verificationIconFileId ?? Int64.min, &builder)
         if let sendPaidMessageStarsOffset {
             TelegramCore_TelegramChannel.add(sendPaidMessageStars: sendPaidMessageStarsOffset, &builder)
-        }
-        if let linkedMonoforumId = self.linkedMonoforumId {
-            TelegramCore_TelegramChannel.add(linkedMonoforumId: linkedMonoforumId.asFlatBuffersObject(), &builder)
         }
         
         return TelegramCore_TelegramChannel.endTelegramChannel(&builder, start: start)
