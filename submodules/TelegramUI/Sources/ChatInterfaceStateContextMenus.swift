@@ -647,8 +647,13 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                     if let restrictedText = restrictedText {
                         storeMessageTextInPasteboard(restrictedText, entities: nil)
                     } else {
-                        if let translationState = chatPresentationInterfaceState.translationState, translationState.isEnabled,
-                           let translation = message.attributes.first(where: { ($0 as? TranslationMessageAttribute)?.toLang == translationState.toLang }) as? TranslationMessageAttribute, !translation.text.isEmpty {
+                        var translateToLang: String?
+                        if let translationState = chatPresentationInterfaceState.translationState, translationState.isEnabled {
+                            translateToLang = translationState.toLang
+                        }
+                        if controllerInteraction.summarizedMessageIds.contains(message.id), let attribute = message.attributes.first(where: { $0 is SummarizationMessageAttribute }) as? SummarizationMessageAttribute, let summary = attribute.summaryForLang(translateToLang) {
+                            storeMessageTextInPasteboard(summary.text, entities: summary.entities)
+                        } else if let translateToLang, let translation = message.attributes.first(where: { ($0 as? TranslationMessageAttribute)?.toLang == translateToLang }) as? TranslationMessageAttribute, !translation.text.isEmpty {
                             storeMessageTextInPasteboard(translation.text, entities: translation.entities)
                         } else {
                             storeMessageTextInPasteboard(message.text, entities: messageEntities)
@@ -1131,7 +1136,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             let sendGiftTitle: String
             var isIncoming = message.effectivelyIncoming(context.account.peerId)
             for media in message.media {
-                if let action = media as? TelegramMediaAction, case let .starGiftUnique(_, isUpgrade, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = action.action {
+                if let action = media as? TelegramMediaAction, case let .starGiftUnique(_, isUpgrade, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = action.action {
                     if isUpgrade && message.author?.id == context.account.peerId {
                         isIncoming = true
                     }
@@ -1178,8 +1183,8 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                     c?.dismiss(completion: {
                         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                         
-                        controllerInteraction.presentController(standardTextAlertController(
-                            theme: AlertControllerTheme(presentationData: presentationData),
+                        controllerInteraction.presentController(textAlertController(
+                            context: context,
                             title: presentationData.strings.Chat_ScheduledForceSendProcessingVideo_Title,
                             text: presentationData.strings.Chat_ScheduledForceSendProcessingVideo_Text,
                             actions: [
@@ -1282,11 +1287,16 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                                     if let restrictedText = restrictedText {
                                         storeMessageTextInPasteboard(restrictedText, entities: nil)
                                     } else {
-                                        if let translationState = chatPresentationInterfaceState.translationState, translationState.isEnabled,
-                                           let translation = message.attributes.first(where: { ($0 as? TranslationMessageAttribute)?.toLang == translationState.toLang }) as? TranslationMessageAttribute, !translation.text.isEmpty {
+                                        var translateToLang: String?
+                                        if let translationState = chatPresentationInterfaceState.translationState, translationState.isEnabled {
+                                            translateToLang = translationState.toLang
+                                        }
+                                        if controllerInteraction.summarizedMessageIds.contains(message.id), let attribute = message.attributes.first(where: { $0 is SummarizationMessageAttribute }) as? SummarizationMessageAttribute, let summary = attribute.summaryForLang(translateToLang) {
+                                            storeMessageTextInPasteboard(summary.text, entities: summary.entities)
+                                        } else if let translateToLang, let translation = message.attributes.first(where: { ($0 as? TranslationMessageAttribute)?.toLang == translateToLang }) as? TranslationMessageAttribute, !translation.text.isEmpty {
                                             storeMessageTextInPasteboard(translation.text, entities: translation.entities)
                                         } else {
-                                            storeMessageTextInPasteboard(messageText, entities: messageEntities)
+                                            storeMessageTextInPasteboard(message.text, entities: messageEntities)
                                         }
                                     }
                                     
@@ -1355,10 +1365,17 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                         return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Message"), color: theme.actionSheet.primaryTextColor)
                     }, action: { _, f in
                         var text = messageText
-                        if let translationState = chatPresentationInterfaceState.translationState, translationState.isEnabled,
-                           let translation = message.attributes.first(where: { ($0 as? TranslationMessageAttribute)?.toLang == translationState.toLang }) as? TranslationMessageAttribute, !translation.text.isEmpty {
+                        
+                        var translateToLang: String?
+                        if let translationState = chatPresentationInterfaceState.translationState, translationState.isEnabled {
+                            translateToLang = translationState.toLang
+                        }
+                        if controllerInteraction.summarizedMessageIds.contains(message.id), let attribute = message.attributes.first(where: { $0 is SummarizationMessageAttribute }) as? SummarizationMessageAttribute, let summary = attribute.summaryForLang(translateToLang) {
+                            text = summary.text
+                        } else if let translateToLang, let translation = message.attributes.first(where: { ($0 as? TranslationMessageAttribute)?.toLang == translateToLang }) as? TranslationMessageAttribute, !translation.text.isEmpty {
                             text = translation.text
                         }
+                        
                         controllerInteraction.performTextSelectionAction(message, !isCopyProtected, NSAttributedString(string: text), .speak)
                         f(.default)
                     })))
@@ -2005,13 +2022,6 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             }
             return false
         })
-        
-        if isEdited {
-            if !actions.isEmpty {
-                actions.insert(.separator, at: 0)
-            }
-            actions.insert(.custom(ChatReadReportContextItem(context: context, message: message, hasReadReports: false, isEdit: true, stats: MessageReadStats(reactionCount: 0, peers: [], readTimestamps: [:]), action: nil), false), at: 0)
-        }
 
         if canViewAuthor {
             actions.insert(.custom(ChatMessageAuthorContextItem(context: context, message: message, action: { c, f, peer in
@@ -2020,6 +2030,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                 })
             }), false), at: 0)
         }
+        
         if let peer = message.peers[message.id.peerId], (canViewStats || reactionCount != 0) {
             var hasReadReports = false
             if let channel = peer as? TelegramChannel {
@@ -2134,6 +2145,13 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             }
         }
         
+        if isEdited {
+            if !actions.isEmpty {
+                actions.insert(.separator, at: 0)
+            }
+            actions.insert(.custom(ChatReadReportContextItem(context: context, message: message, hasReadReports: false, isEdit: true, stats: MessageReadStats(reactionCount: 0, peers: [], readTimestamps: [:]), action: nil), false), at: 0)
+        }
+        
         if !actions.isEmpty, case .separator = actions[0] {
             actions.removeFirst()
         }
@@ -2162,8 +2180,13 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                         if let restrictedText = restrictedText {
                             storeMessageTextInPasteboard(restrictedText, entities: nil)
                         } else {
-                            if let translationState = chatPresentationInterfaceState.translationState, translationState.isEnabled,
-                               let translation = message.attributes.first(where: { ($0 as? TranslationMessageAttribute)?.toLang == translationState.toLang }) as? TranslationMessageAttribute, !translation.text.isEmpty {
+                            var translateToLang: String?
+                            if let translationState = chatPresentationInterfaceState.translationState, translationState.isEnabled {
+                                translateToLang = translationState.toLang
+                            }
+                            if controllerInteraction.summarizedMessageIds.contains(message.id), let attribute = message.attributes.first(where: { $0 is SummarizationMessageAttribute }) as? SummarizationMessageAttribute, let summary = attribute.summaryForLang(translateToLang) {
+                                storeMessageTextInPasteboard(summary.text, entities: summary.entities)
+                            } else if let translateToLang, let translation = message.attributes.first(where: { ($0 as? TranslationMessageAttribute)?.toLang == translateToLang }) as? TranslationMessageAttribute, !translation.text.isEmpty {
                                 storeMessageTextInPasteboard(translation.text, entities: translation.entities)
                             } else {
                                 storeMessageTextInPasteboard(message.text, entities: messageEntities)
@@ -2584,7 +2607,6 @@ private final class ChatDeleteMessageContextItemNode: ASDisplayNode, ContextMenu
     private let actionSelected: (ContextMenuActionResult) -> Void
     
     private let backgroundNode: ASDisplayNode
-    private let highlightedBackgroundNode: ASDisplayNode
     private let textNode: ImmediateTextNode
     private let statusNode: ImmediateTextNode
     private let iconNode: ASImageNode
@@ -2611,10 +2633,6 @@ private final class ChatDeleteMessageContextItemNode: ASDisplayNode, ContextMenu
         self.backgroundNode = ASDisplayNode()
         self.backgroundNode.isAccessibilityElement = false
         self.backgroundNode.backgroundColor = presentationData.theme.contextMenu.itemBackgroundColor
-        self.highlightedBackgroundNode = ASDisplayNode()
-        self.highlightedBackgroundNode.isAccessibilityElement = false
-        self.highlightedBackgroundNode.backgroundColor = presentationData.theme.contextMenu.itemHighlightedBackgroundColor
-        self.highlightedBackgroundNode.alpha = 0.0
         
         self.textNode = ImmediateTextNode()
         self.textNode.isAccessibilityElement = false
@@ -2644,24 +2662,12 @@ private final class ChatDeleteMessageContextItemNode: ASDisplayNode, ContextMenu
         super.init()
         
         self.addSubnode(self.backgroundNode)
-        self.addSubnode(self.highlightedBackgroundNode)
         self.addSubnode(self.textNode)
         self.addSubnode(self.statusNode)
         self.addSubnode(self.iconNode)
         self.addSubnode(self.textIconNode)
         self.addSubnode(self.buttonNode)
         
-        self.buttonNode.highligthedChanged = { [weak self] highligted in
-            guard let strongSelf = self else {
-                return
-            }
-            if highligted {
-                strongSelf.highlightedBackgroundNode.alpha = 1.0
-            } else {
-                strongSelf.highlightedBackgroundNode.alpha = 0.0
-                strongSelf.highlightedBackgroundNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.3)
-            }
-        }
         self.buttonNode.addTarget(self, action: #selector(self.buttonPressed), forControlEvents: .touchUpInside)
     }
     
@@ -2672,14 +2678,8 @@ private final class ChatDeleteMessageContextItemNode: ASDisplayNode, ContextMenu
     override func didLoad() {
         super.didLoad()
         
-        self.pointerInteraction = PointerInteraction(node: self.buttonNode, style: .hover, willEnter: { [weak self] in
-            if let strongSelf = self {
-                strongSelf.highlightedBackgroundNode.alpha = 0.75
-            }
-        }, willExit: { [weak self] in
-            if let strongSelf = self {
-                strongSelf.highlightedBackgroundNode.alpha = 0.0
-            }
+        self.pointerInteraction = PointerInteraction(node: self.buttonNode, style: .hover, willEnter: {
+        }, willExit: {
         })
         
         let timer = SwiftSignalKit.Timer(timeout: 0.5, repeat: true, completion: { [weak self] in
@@ -2698,13 +2698,13 @@ private final class ChatDeleteMessageContextItemNode: ASDisplayNode, ContextMenu
         let subtextFont = Font.regular(self.presentationData.listsFontSize.baseDisplaySize * 13.0 / 17.0)
         self.statusNode.attributedText = NSAttributedString(string: stringForRemainingTime(Int32(max(0.0, self.item.timestamp - Date().timeIntervalSince1970)), strings: presentationData.strings), font: subtextFont, textColor: presentationData.theme.contextMenu.destructiveColor)
         
-        let sideInset: CGFloat = 16.0
+        let sideInset: CGFloat = 18.0
         let statusSize = self.statusNode.updateLayout(CGSize(width: size.width - sideInset - 32.0 + 4.0, height: .greatestFiniteMagnitude))
         transition.updateFrameAdditive(node: self.statusNode, frame: CGRect(origin: CGPoint(x: self.statusNode.frame.minX, y: self.statusNode.frame.minY), size: statusSize))
     }
     
     func updateLayout(constrainedWidth: CGFloat, constrainedHeight: CGFloat) -> (CGSize, (CGSize, ContainedViewLayoutTransition) -> Void) {
-        let sideInset: CGFloat = 16.0
+        let sideInset: CGFloat = 18.0
         let iconSideInset: CGFloat = 12.0
         let verticalInset: CGFloat = 12.0
         
@@ -2725,25 +2725,23 @@ private final class ChatDeleteMessageContextItemNode: ASDisplayNode, ContextMenu
         return (CGSize(width: max(textSize.width, statusSize.width) + sideInset + rightTextInset, height: verticalInset * 2.0 + combinedTextHeight), { size, transition in
             self.validLayout = size
             let verticalOrigin = floor((size.height - combinedTextHeight) / 2.0)
-            let textFrame = CGRect(origin: CGPoint(x: sideInset, y: verticalOrigin), size: textSize)
+            let textFrame = CGRect(origin: CGPoint(x: sideInset + 42.0, y: verticalOrigin), size: textSize)
             transition.updateFrameAdditive(node: self.textNode, frame: textFrame)
             
-            transition.updateFrame(node: self.textIconNode, frame: CGRect(origin: CGPoint(x: sideInset, y: verticalOrigin + verticalSpacing + textSize.height + floorToScreenPixels((statusSize.height - textIconSize.height) / 2.0) + 1.0), size: textIconSize))
-            transition.updateFrameAdditive(node: self.statusNode, frame: CGRect(origin: CGPoint(x: sideInset + textIconSize.width + 2.0, y: verticalOrigin + verticalSpacing + textSize.height), size: statusSize))
+            transition.updateFrame(node: self.textIconNode, frame: CGRect(origin: CGPoint(x: sideInset + 42.0, y: verticalOrigin + verticalSpacing + textSize.height + floorToScreenPixels((statusSize.height - textIconSize.height) / 2.0) + 1.0), size: textIconSize))
+            transition.updateFrameAdditive(node: self.statusNode, frame: CGRect(origin: CGPoint(x: sideInset + 42.0 + textIconSize.width + 2.0, y: verticalOrigin + verticalSpacing + textSize.height), size: statusSize))
             
             if !iconSize.width.isZero {
-                transition.updateFrameAdditive(node: self.iconNode, frame: CGRect(origin: CGPoint(x: size.width - standardIconWidth - iconSideInset + floor((standardIconWidth - iconSize.width) / 2.0), y: floor((size.height - iconSize.height) / 2.0)), size: iconSize))
+                transition.updateFrameAdditive(node: self.iconNode, frame: CGRect(origin: CGPoint(x: iconSideInset + 12.0, y: floor((size.height - iconSize.height) / 2.0)), size: iconSize))
             }
             
             transition.updateFrame(node: self.backgroundNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: size.width, height: size.height)))
-            transition.updateFrame(node: self.highlightedBackgroundNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: size.width, height: size.height)))
             transition.updateFrame(node: self.buttonNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: size.width, height: size.height)))
         })
     }
     
     func updateTheme(presentationData: PresentationData) {
         self.backgroundNode.backgroundColor = presentationData.theme.contextMenu.itemBackgroundColor
-        self.highlightedBackgroundNode.backgroundColor = presentationData.theme.contextMenu.itemHighlightedBackgroundColor
         
         let textFont = Font.regular(presentationData.listsFontSize.baseDisplaySize)
         let subtextFont = Font.regular(presentationData.listsFontSize.baseDisplaySize * 13.0 / 17.0)
@@ -2766,11 +2764,6 @@ private final class ChatDeleteMessageContextItemNode: ASDisplayNode, ContextMenu
     }
     
     func setIsHighlighted(_ value: Bool) {
-        if value {
-            self.highlightedBackgroundNode.alpha = 1.0
-        } else {
-            self.highlightedBackgroundNode.alpha = 0.0
-        }
     }
     
     func canBeHighlighted() -> Bool {
@@ -2809,16 +2802,9 @@ private final class ChatMessageAuthorContextItemNode: ASDisplayNode, ContextMenu
     private let actionSelected: (ContextMenuActionResult) -> Void
 
     private let backgroundNode: ASDisplayNode
-    private let highlightedBackgroundNode: ASDisplayNode
     private let placeholderCalculationTextNode: ImmediateTextNode
     private let textNode: ImmediateTextNode
     private let shimmerNode: ShimmerEffectNode
-
-    /*private let avatarsNode: AnimatedAvatarSetNode
-    private let avatarsContext: AnimatedAvatarSetContext
-
-    private let placeholderAvatarsNode: AnimatedAvatarSetNode
-    private let placeholderAvatarsContext: AnimatedAvatarSetContext*/
 
     private let buttonNode: HighlightTrackingButtonNode
 
@@ -2838,10 +2824,6 @@ private final class ChatMessageAuthorContextItemNode: ASDisplayNode, ContextMenu
         self.backgroundNode = ASDisplayNode()
         self.backgroundNode.isAccessibilityElement = false
         self.backgroundNode.backgroundColor = presentationData.theme.contextMenu.itemBackgroundColor
-        self.highlightedBackgroundNode = ASDisplayNode()
-        self.highlightedBackgroundNode.isAccessibilityElement = false
-        self.highlightedBackgroundNode.backgroundColor = presentationData.theme.contextMenu.itemHighlightedBackgroundColor
-        self.highlightedBackgroundNode.alpha = 0.0
 
         self.placeholderCalculationTextNode = ImmediateTextNode()
         self.placeholderCalculationTextNode.attributedText = NSAttributedString(string: presentationData.strings.Conversation_ContextMenuSeen(11), font: textFont, textColor: presentationData.theme.contextMenu.primaryColor)
@@ -2862,33 +2844,13 @@ private final class ChatMessageAuthorContextItemNode: ASDisplayNode, ContextMenu
         self.buttonNode.isAccessibilityElement = true
         self.buttonNode.accessibilityLabel = presentationData.strings.VoiceChat_StopRecording
 
-        /*self.avatarsNode = AnimatedAvatarSetNode()
-        self.avatarsContext = AnimatedAvatarSetContext()
-
-        self.placeholderAvatarsNode = AnimatedAvatarSetNode()
-        self.placeholderAvatarsContext = AnimatedAvatarSetContext()*/
-
         super.init()
 
         self.addSubnode(self.backgroundNode)
-        self.addSubnode(self.highlightedBackgroundNode)
         self.addSubnode(self.shimmerNode)
         self.addSubnode(self.textNode)
-        /*self.addSubnode(self.avatarsNode)
-        self.addSubnode(self.placeholderAvatarsNode)*/
         self.addSubnode(self.buttonNode)
 
-        self.buttonNode.highligthedChanged = { [weak self] highligted in
-            guard let strongSelf = self else {
-                return
-            }
-            if highligted {
-                strongSelf.highlightedBackgroundNode.alpha = 1.0
-            } else {
-                strongSelf.highlightedBackgroundNode.alpha = 0.0
-                strongSelf.highlightedBackgroundNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.3)
-            }
-        }
         self.buttonNode.addTarget(self, action: #selector(self.buttonPressed), forControlEvents: .touchUpInside)
         
         self.buttonNode.isUserInteractionEnabled = false
@@ -2911,14 +2873,8 @@ private final class ChatMessageAuthorContextItemNode: ASDisplayNode, ContextMenu
     override func didLoad() {
         super.didLoad()
 
-        self.pointerInteraction = PointerInteraction(node: self.buttonNode, style: .hover, willEnter: { [weak self] in
-            if let strongSelf = self {
-                strongSelf.highlightedBackgroundNode.alpha = 0.75
-            }
-        }, willExit: { [weak self] in
-            if let strongSelf = self {
-                strongSelf.highlightedBackgroundNode.alpha = 0.0
-            }
+        self.pointerInteraction = PointerInteraction(node: self.buttonNode, style: .hover, willEnter: {
+        }, willExit: {
         })
     }
 
@@ -2938,7 +2894,7 @@ private final class ChatMessageAuthorContextItemNode: ASDisplayNode, ContextMenu
     }
 
     func updateLayout(constrainedWidth: CGFloat, constrainedHeight: CGFloat) -> (CGSize, (CGSize, ContainedViewLayoutTransition) -> Void) {
-        let sideInset: CGFloat = 14.0
+        let sideInset: CGFloat = 18.0
         let verticalInset: CGFloat
         let rightTextInset: CGFloat
         //let avatarsWidth: CGFloat = 32.0
@@ -3004,27 +2960,7 @@ private final class ChatMessageAuthorContextItemNode: ASDisplayNode, ContextMenu
             self.shimmerNode.updateAbsoluteRect(self.shimmerNode.frame, within: size)
             transition.updateAlpha(node: self.shimmerNode, alpha: self.peer == nil ? 1.0 : 0.0)
 
-            /*let avatarsContent: AnimatedAvatarSetContext.Content
-            let placeholderAvatarsContent: AnimatedAvatarSetContext.Content
-
-            var avatarsPeers: [EnginePeer] = []
-            if let peer = self.peer {
-                avatarsPeers = [peer]
-            }
-            avatarsContent = self.avatarsContext.update(peers: avatarsPeers, animated: false)
-            
-            placeholderAvatarsContent = self.avatarsContext.updatePlaceholder(color: shimmeringForegroundColor, count: 1, animated: false)
-
-            let avatarsSize = self.avatarsNode.update(context: self.item.context, content: avatarsContent, itemSize: CGSize(width: 24.0, height: 24.0), customSpacing: 10.0, animated: false, synchronousLoad: true)
-            self.avatarsNode.frame = CGRect(origin: CGPoint(x: sideInset, y: floor((size.height - avatarsSize.height) / 2.0)), size: avatarsSize)
-            transition.updateAlpha(node: self.avatarsNode, alpha: self.peer == nil ? 0.0 : 1.0)
-
-            let placeholderAvatarsSize = self.placeholderAvatarsNode.update(context: self.item.context, content: placeholderAvatarsContent, itemSize: CGSize(width: 24.0, height: 24.0), customSpacing: 10.0, animated: false, synchronousLoad: true)
-            self.placeholderAvatarsNode.frame = CGRect(origin: CGPoint(x: self.avatarsNode.frame.minX, y: floor((size.height - placeholderAvatarsSize.height) / 2.0)), size: placeholderAvatarsSize)
-            transition.updateAlpha(node: self.placeholderAvatarsNode, alpha: self.peer == nil ? 1.0 : 0.0)*/
-
             transition.updateFrame(node: self.backgroundNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: size.width, height: size.height)))
-            transition.updateFrame(node: self.highlightedBackgroundNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: size.width, height: size.height)))
             transition.updateFrame(node: self.buttonNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: size.width, height: size.height)))
         })
     }
@@ -3033,7 +2969,6 @@ private final class ChatMessageAuthorContextItemNode: ASDisplayNode, ContextMenu
         self.presentationData = presentationData
 
         self.backgroundNode.backgroundColor = presentationData.theme.contextMenu.itemBackgroundColor
-        self.highlightedBackgroundNode.backgroundColor = presentationData.theme.contextMenu.itemHighlightedBackgroundColor
 
         let textFont = Font.regular(presentationData.listsFontSize.baseDisplaySize)
 
@@ -3081,11 +3016,6 @@ private final class ChatMessageAuthorContextItemNode: ASDisplayNode, ContextMenu
     }
 
     func setIsHighlighted(_ value: Bool) {
-        if value {
-            self.highlightedBackgroundNode.alpha = 1.0
-        } else {
-            self.highlightedBackgroundNode.alpha = 0.0
-        }
     }
     
     func actionNode(at point: CGPoint) -> ContextActionNodeProtocol {
@@ -3122,7 +3052,6 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
     private let actionSelected: (ContextMenuActionResult) -> Void
 
     private let backgroundNode: ASDisplayNode
-    private let highlightedBackgroundNode: ASDisplayNode
     private let placeholderCalculationTextNode: ImmediateTextNode
     private let textNode: ImmediateTextNode
     private var badgeBackground: UIImageView?
@@ -3159,10 +3088,6 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
         self.backgroundNode = ASDisplayNode()
         self.backgroundNode.isAccessibilityElement = false
         self.backgroundNode.backgroundColor = presentationData.theme.contextMenu.itemBackgroundColor
-        self.highlightedBackgroundNode = ASDisplayNode()
-        self.highlightedBackgroundNode.isAccessibilityElement = false
-        self.highlightedBackgroundNode.backgroundColor = presentationData.theme.contextMenu.itemHighlightedBackgroundColor
-        self.highlightedBackgroundNode.alpha = 0.0
 
         self.placeholderCalculationTextNode = ImmediateTextNode()
         self.placeholderCalculationTextNode.attributedText = NSAttributedString(string: presentationData.strings.Conversation_ContextMenuSeen(11), font: textFont, textColor: presentationData.theme.contextMenu.primaryColor)
@@ -3203,7 +3128,6 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
         super.init()
 
         self.addSubnode(self.backgroundNode)
-        self.addSubnode(self.highlightedBackgroundNode)
         self.addSubnode(self.shimmerNode)
         self.addSubnode(self.textNode)
         self.addSubnode(self.iconNode)
@@ -3211,17 +3135,6 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
         self.addSubnode(self.placeholderAvatarsNode)
         self.addSubnode(self.buttonNode)
 
-        self.buttonNode.highligthedChanged = { [weak self] highligted in
-            guard let strongSelf = self else {
-                return
-            }
-            if highligted {
-                strongSelf.highlightedBackgroundNode.alpha = 1.0
-            } else {
-                strongSelf.highlightedBackgroundNode.alpha = 0.0
-                strongSelf.highlightedBackgroundNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.3)
-            }
-        }
         self.buttonNode.addTarget(self, action: #selector(self.buttonPressed), forControlEvents: .touchUpInside)
         
         var reactionCount = 0
@@ -3316,14 +3229,8 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
     override func didLoad() {
         super.didLoad()
 
-        self.pointerInteraction = PointerInteraction(node: self.buttonNode, style: .hover, willEnter: { [weak self] in
-            if let strongSelf = self {
-                strongSelf.highlightedBackgroundNode.alpha = 0.75
-            }
-        }, willExit: { [weak self] in
-            if let strongSelf = self {
-                strongSelf.highlightedBackgroundNode.alpha = 0.0
-            }
+        self.pointerInteraction = PointerInteraction(node: self.buttonNode, style: .hover, willEnter: {
+        }, willExit: {
         })
     }
 
@@ -3347,7 +3254,7 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
     }
 
     func updateLayout(constrainedWidth: CGFloat, constrainedHeight: CGFloat) -> (CGSize, (CGSize, ContainedViewLayoutTransition) -> Void) {
-        let sideInset: CGFloat = 14.0
+        let sideInset: CGFloat = 18.0
         let verticalInset: CGFloat
         let rightTextInset: CGFloat
         
@@ -3355,7 +3262,7 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
             verticalInset = 7.0
             rightTextInset = 8.0
         } else {
-            verticalInset = 12.0
+            verticalInset = 11.0
             rightTextInset = sideInset + 36.0
         }
 
@@ -3462,7 +3369,11 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
                 }
             }
         } else {
-            self.textNode.attributedText = NSAttributedString(string: " ", font: textFont, textColor: self.presentationData.theme.contextMenu.primaryColor)
+            var actualFont = textFont
+            if self.item.message.id.peerId.namespace == Namespaces.Peer.CloudUser {
+                actualFont = Font.regular(floor(self.presentationData.listsFontSize.baseDisplaySize * 0.8))
+            }
+            self.textNode.attributedText = NSAttributedString(string: " ", font: actualFont, textColor: self.presentationData.theme.contextMenu.primaryColor)
         }
 
         let textSize = self.textNode.updateLayout(CGSize(width: calculatedWidth - sideInset - rightTextInset - iconSize.width - 4.0, height: .greatestFiniteMagnitude))
@@ -3512,11 +3423,7 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
             let positionTransition: ContainedViewLayoutTransition = animatePositions ? transition : .immediate
             
             let verticalOrigin = floor((size.height - combinedTextHeight) / 2.0)
-            var textFrame = CGRect(origin: CGPoint(x: sideInset + iconSize.width + 4.0, y: verticalOrigin), size: textSize)
-            
-            if self.item.isEdit {
-                textFrame.origin.x -= 2.0
-            }
+            let textFrame = CGRect(origin: CGPoint(x: sideInset + 42.0, y: verticalOrigin), size: textSize)
             
             positionTransition.updateFrameAdditive(node: self.textNode, frame: textFrame)
             transition.updateAlpha(node: self.textNode, alpha: self.currentStats == nil ? 0.0 : 1.0)
@@ -3561,9 +3468,9 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
             transition.updateAlpha(node: self.shimmerNode, alpha: self.currentStats == nil ? 1.0 : 0.0)
 
             if !iconSize.width.isZero {
-                var iconFrame = CGRect(origin: CGPoint(x: sideInset + 1.0, y: floor((size.height - iconSize.height) / 2.0)), size: iconSize)
+                var iconFrame = CGRect(origin: CGPoint(x: sideInset + 6.0, y: floor((size.height - iconSize.height) / 2.0)), size: iconSize)
                 if self.item.isEdit {
-                    iconFrame.origin.x -= 2.0
+                    iconFrame.origin.x += 1.0
                 }
                 transition.updateFrameAdditive(node: self.iconNode, frame: iconFrame)
             }
@@ -3600,15 +3507,14 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
             }
 
             let avatarsSize = self.avatarsNode.update(context: self.item.context, content: avatarsContent, itemSize: CGSize(width: 24.0, height: 24.0), customSpacing: 10.0, animated: false, synchronousLoad: true)
-            self.avatarsNode.frame = CGRect(origin: CGPoint(x: floorToScreenPixels(size.width - sideInset - 2.0 - avatarsSize.width), y: floor((size.height - avatarsSize.height) / 2.0)), size: avatarsSize)
+            self.avatarsNode.frame = CGRect(origin: CGPoint(x: floorToScreenPixels(size.width - sideInset - 4.0 - avatarsSize.width), y: floor((size.height - avatarsSize.height) / 2.0)), size: avatarsSize)
             transition.updateAlpha(node: self.avatarsNode, alpha: self.currentStats == nil ? 0.0 : 1.0)
 
             let placeholderAvatarsSize = self.placeholderAvatarsNode.update(context: self.item.context, content: placeholderAvatarsContent, itemSize: CGSize(width: 24.0, height: 24.0), customSpacing: 10.0, animated: false, synchronousLoad: true)
-            self.placeholderAvatarsNode.frame = CGRect(origin: CGPoint(x: size.width - sideInset - 2.0 - placeholderAvatarsSize.width, y: floor((size.height - placeholderAvatarsSize.height) / 2.0)), size: placeholderAvatarsSize)
+            self.placeholderAvatarsNode.frame = CGRect(origin: CGPoint(x: size.width - sideInset - 4.0 - placeholderAvatarsSize.width, y: floor((size.height - placeholderAvatarsSize.height) / 2.0)), size: placeholderAvatarsSize)
             transition.updateAlpha(node: self.placeholderAvatarsNode, alpha: self.currentStats == nil ? 1.0 : 0.0)
 
             transition.updateFrame(node: self.backgroundNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: size.width, height: size.height)))
-            transition.updateFrame(node: self.highlightedBackgroundNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: size.width, height: size.height)))
             transition.updateFrame(node: self.buttonNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: size.width, height: size.height)))
         })
     }
@@ -3617,7 +3523,6 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
         self.presentationData = presentationData
 
         self.backgroundNode.backgroundColor = presentationData.theme.contextMenu.itemBackgroundColor
-        self.highlightedBackgroundNode.backgroundColor = presentationData.theme.contextMenu.itemHighlightedBackgroundColor
 
         let textFont = Font.regular(presentationData.listsFontSize.baseDisplaySize)
 
@@ -3659,6 +3564,15 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
         if self.item.action == nil {
             return false
         }
+        if self.item.isEdit {
+            return false
+        }
+        if self.item.message.id.peerId.namespace == Namespaces.Peer.CloudUser {
+            if let stats = self.currentStats, stats.peers.isEmpty {
+            } else {
+                return false
+            }
+        }
         var reactionCount = 0
         for reaction in mergedMessageReactionsAndPeers(accountPeerId: self.item.context.account.peerId, accountPeer: nil, message: self.item.message).reactions {
             reactionCount += Int(reaction.count)
@@ -3673,11 +3587,6 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
     }
 
     func setIsHighlighted(_ value: Bool) {
-        if value {
-            self.highlightedBackgroundNode.alpha = 1.0
-        } else {
-            self.highlightedBackgroundNode.alpha = 0.0
-        }
     }
     
     func actionNode(at point: CGPoint) -> ContextActionNodeProtocol {
@@ -3797,7 +3706,7 @@ private final class ChatRateTranscriptionContextItemNode: ASDisplayNode, Context
     }
 
     func updateLayout(constrainedWidth: CGFloat, constrainedHeight: CGFloat) -> (CGSize, (CGSize, ContainedViewLayoutTransition) -> Void) {
-        let sideInset: CGFloat = 14.0
+        let sideInset: CGFloat = 18.0
         let verticalInset: CGFloat = 9.0
 
         let calculatedWidth = min(constrainedWidth, 250.0)
