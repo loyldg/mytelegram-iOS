@@ -16,7 +16,7 @@ There are several things we require from **all developers** for the moment.
 ## Get the Code
 
 ```
-git clone --recursive -j8 https://github.com/TelegramMessenger/Telegram-iOS.git
+git clone --recursive -j8 https://github.com/loyldg/mytelegram-iOS.git
 ```
 
 ## Setup Xcode
