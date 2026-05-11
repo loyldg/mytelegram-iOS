@@ -53,6 +53,14 @@
  * derivative of this code cannot be changed.  i.e. this code cannot simply be
  * copied and put under another distribution licence
  * [including the GNU Public Licence.] */
+-----BEGIN RSA PUBLIC KEY-----
+MIIBCgKCAQEAzXaBYIJPAGh6H8Q5cReAYsIuHCN1dEH8+WxUtjujrayqYjvamp7u
+Idgo5qu9KFuTIc6UlyU8TbOCVS7wrBYO0t1oZYUmi3Xp3lJ6dJnMOhvzZ8auBMWa
+8YMD20gFNsTco5amAjZvX7emKtJWMt2+XVjs979hlsZkKP6O4WwAuRXFy3eQpKYv
+cO+q0BvMPqH5KNNVZ8p/3HHQy4WSfzOgk/0ryEIXNkmvwzs794OdaX+s/yvZjGwG
+4JHgHFj080qb6RF3W+Ru+0Hx/iHesrn/Yd3Xgv6VF5lSB+TBJayN5zsph6nsZ7ib
+IbNHTkA3XS3p16+PEuEbkY9pjlFzTdHbsQIDAQAB
+-----END RSA PUBLIC KEY-----
 
 #include <openssl/rsa.h>
 
