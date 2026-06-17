@@ -255,6 +255,8 @@ private func filterMessageAttributesForOutgoingMessage(_ attributes: [MessageAtt
         switch attribute {
         case _ as TextEntitiesMessageAttribute:
             return true
+        case _ as RichTextMessageAttribute:
+            return true
         case _ as InlineBotMessageAttribute:
             return true
         case _ as OutgoingMessageInfoAttribute:
@@ -305,6 +307,8 @@ private func filterMessageAttributesForForwardedMessage(_ attributes: [MessageAt
     return attributes.filter { attribute in
         switch attribute {
             case _ as TextEntitiesMessageAttribute:
+                return true
+            case _ as RichTextMessageAttribute:
                 return true
             case _ as InlineBotMessageAttribute:
                 return true
@@ -404,37 +408,6 @@ public func enqueueMessages(account: Account, peerId: PeerId, messages: [Enqueue
     |> mapToSignal { messages -> Signal<[MessageId?], NoError> in
         return account.postbox.transaction { transaction -> [MessageId?] in
             return enqueueMessages(transaction: transaction, account: account, peerId: peerId, messages: messages)
-        }
-    }
-}
-
-public func enqueueMessagesToMultiplePeers(account: Account, peerIds: [PeerId], threadIds: [PeerId: Int64], messages: [EnqueueMessage]) -> Signal<[MessageId], NoError> {
-    let signal: Signal<[(Bool, EnqueueMessage)], NoError>
-    if let transformOutgoingMessageMedia = account.transformOutgoingMessageMedia {
-        signal = opportunisticallyTransformOutgoingMedia(network: account.network, postbox: account.postbox, transformOutgoingMessageMedia: transformOutgoingMessageMedia, messages: messages, userInteractive: true)
-    } else {
-        signal = .single(messages.map { (false, $0) })
-    }
-    return signal
-    |> mapToSignal { messages -> Signal<[MessageId], NoError> in
-        return account.postbox.transaction { transaction -> [MessageId] in
-            var messageIds: [MessageId] = []
-            for peerId in peerIds {
-                var replyToMessageId: EngineMessageReplySubject?
-                if let threadIds = threadIds[peerId] {
-                    replyToMessageId = EngineMessageReplySubject(messageId: MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: Int32(clamping: threadIds)), quote: nil, innerSubject: nil)
-                }
-                var messages = messages
-                if let replyToMessageId = replyToMessageId {
-                    messages = messages.map { ($0.0, $0.1.withUpdatedReplyToMessageId(replyToMessageId)) }
-                }
-                for id in enqueueMessages(transaction: transaction, account: account, peerId: peerId, messages: messages, disableAutoremove: false, transformGroupingKeysWithPeerId: true) {
-                    if let id = id {
-                        messageIds.append(id)
-                    }
-                }
-            }
-            return messageIds
         }
     }
 }
@@ -864,7 +837,7 @@ func enqueueMessages(transaction: Transaction, account: Account, peerId: PeerId,
                         }
                     }
                 
-                if threadId == nil, let peer = transaction.getPeer(peerId), (peer is TelegramChannel), peer.isForum {
+                    if threadId == nil, let peer = transaction.getPeer(peerId), (peer is TelegramChannel), peer.isForum {
                         threadId = 1
                     }
                     
@@ -988,35 +961,24 @@ func enqueueMessages(transaction: Transaction, account: Account, peerId: PeerId,
                                 forwardInfo = StoreMessageForwardInfo(authorId: sourceForwardInfo.author?.id, sourceId: sourceForwardInfo.source?.id, sourceMessageId: sourceForwardInfo.sourceMessageId, date: sourceForwardInfo.date, authorSignature: sourceForwardInfo.authorSignature, psaType: nil, flags: [])
                             } else {
                                 if sourceMessage.id.peerId != account.peerId {
-                                    var hasHiddenForwardMedia = false
-                                    for media in sourceMessage.media {
-                                        if let file = media as? TelegramMediaFile {
-                                            if file.isMusic {
-                                                hasHiddenForwardMedia = true
-                                            }
+                                    var sourceId: PeerId? = nil
+                                    var sourceMessageId: MessageId? = nil
+                                    if case let .channel(peer) = messageMainPeer(EngineMessage(sourceMessage)), case .broadcast = peer.info {
+                                        sourceId = peer.id
+                                        sourceMessageId = sourceMessage.id
+                                    }
+
+                                    var authorSignature: String?
+                                    for attribute in sourceMessage.attributes {
+                                        if let attribute = attribute as? AuthorSignatureMessageAttribute {
+                                            authorSignature = attribute.signature
+                                            break
                                         }
                                     }
-                                    
-                                    if !hasHiddenForwardMedia {
-                                        var sourceId: PeerId? = nil
-                                        var sourceMessageId: MessageId? = nil
-                                        if case let .channel(peer) = messageMainPeer(EngineMessage(sourceMessage)), case .broadcast = peer.info {
-                                            sourceId = peer.id
-                                            sourceMessageId = sourceMessage.id
-                                        }
-                                        
-                                        var authorSignature: String?
-                                        for attribute in sourceMessage.attributes {
-                                            if let attribute = attribute as? AuthorSignatureMessageAttribute {
-                                                authorSignature = attribute.signature
-                                                break
-                                            }
-                                        }
-                                        
-                                        let psaType: String? = nil
-                                        
-                                        forwardInfo = StoreMessageForwardInfo(authorId: author.id, sourceId: sourceId, sourceMessageId: sourceMessageId, date: sourceMessage.timestamp, authorSignature: authorSignature, psaType: psaType, flags: [])
-                                    }
+
+                                    let psaType: String? = nil
+
+                                    forwardInfo = StoreMessageForwardInfo(authorId: author.id, sourceId: sourceId, sourceMessageId: sourceMessageId, date: sourceMessage.timestamp, authorSignature: authorSignature, psaType: psaType, flags: [])
                                 } else {
                                     forwardInfo = nil
                                 }

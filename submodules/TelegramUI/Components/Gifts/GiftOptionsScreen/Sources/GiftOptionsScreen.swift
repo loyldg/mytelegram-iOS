@@ -3,7 +3,6 @@ import UIKit
 import Display
 import AsyncDisplayKit
 import SwiftSignalKit
-import Postbox
 import TelegramCore
 import TelegramPresentationData
 import TelegramUIPreferences
@@ -927,7 +926,7 @@ final class GiftOptionsScreenComponent: Component {
                                     if let controller = context.sharedContext.makePeerInfoController(
                                         context: context,
                                         updatedPresentationData: nil,
-                                        peer: peer._asPeer(),
+                                        peer: peer,
                                         mode: .gifts,
                                         avatarInitiallyExpanded: false,
                                         fromChat: false,

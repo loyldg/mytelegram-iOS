@@ -500,7 +500,17 @@ public extension Message {
         }
         return nil
     }
+    
+    var guestChatAttribute: GuestChatMessageAttribute? {
+        for attribute in self.attributes {
+            if let attribute = attribute as? GuestChatMessageAttribute {
+                return attribute
+            }
+        }
+        return nil
+    }
 }
+
 public extension Message {
     var reactionsAttribute: ReactionsMessageAttribute? {
         for attribute in self.attributes {
@@ -639,6 +649,39 @@ public extension Message {
             }
         }
         return false
+    }
+}
+
+public extension Message {
+    var richText: RichTextMessageAttribute? {
+        for attribute in self.attributes {
+            if let attribute = attribute as? RichTextMessageAttribute {
+                return attribute
+            }
+        }
+        return nil
+    }
+}
+
+public extension Message {
+    /// The media that should drive gallery / shared-media / preview surfaces for this message.
+    /// For a normal message this is exactly `self.media`. For a rich message (`text == ""`,
+    /// empty `media`, carrying a `RichTextMessageAttribute`) the media lives inside the
+    /// instant page, so fall back to it. Scope note: callers take the FIRST media for now.
+    var effectiveMedia: [Media] {
+        if !self.media.isEmpty {
+            return self.media
+        }
+        if let richText = self.richText {
+            return richText.instantPage.allMedia()
+        }
+        return self.media
+    }
+}
+
+public extension EngineMessage {
+    var effectiveMedia: [Media] {
+        return self._asMessage().effectiveMedia
     }
 }
 

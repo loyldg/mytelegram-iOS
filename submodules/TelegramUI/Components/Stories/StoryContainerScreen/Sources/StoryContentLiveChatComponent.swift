@@ -4,7 +4,6 @@ import Display
 import ComponentFlow
 import MultilineTextComponent
 import AccountContext
-import Postbox
 import TelegramCore
 import TelegramPresentationData
 import SwiftSignalKit
@@ -367,7 +366,7 @@ final class StoryContentLiveChatComponent: Component {
                             rank: nil,
                             subscriptionUntilDate: nil
                         ),
-                        peer: author._asPeer()
+                        peer: author
                     )],
                     mode: .liveStream(
                         messageCount: 1,

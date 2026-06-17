@@ -768,16 +768,16 @@ final class ShareWithPeersScreenComponent: Component {
                 })
             } else if peer.id.namespace == Namespaces.Peer.CloudChannel {
                 let participants: Signal<[EnginePeer], NoError> = Signal { subscriber in
-                    let (disposable, _) = context.peerChannelMemberCategoriesContextsManager.recent(engine: context.engine, postbox: context.account.postbox, network: context.account.network, accountPeerId: context.account.peerId, peerId: peer.id, requestUpdate: true, count: 200, updated: { list in
+                    let (disposable, _) = context.peerChannelMemberCategoriesContextsManager.recent(engine: context.engine, accountPeerId: context.account.peerId, peerId: peer.id, requestUpdate: true, count: 200, updated: { list in
                         var peers: [EnginePeer] = []
                         for item in list.list {
                             if item.peer.id == context.account.peerId {
                                 continue
                             }
-                            if let user = item.peer as? TelegramUser, user.botInfo != nil {
+                            if case let .user(user) = item.peer, user.botInfo != nil {
                                 continue
                             }
-                            peers.append(EnginePeer(item.peer))
+                            peers.append(item.peer)
                         }
                         if !list.list.isEmpty {
                             subscriber.putNext(peers)
@@ -2765,10 +2765,10 @@ final class ShareWithPeersScreenComponent: Component {
             let navigationLeftButtonSize = self.navigationLeftButton.update(
                 transition: transition,
                 component: AnyComponent(GlassBarButtonComponent(
-                    size: CGSize(width: 40.0, height: 40.0),
-                    backgroundColor: environment.theme.rootController.navigationBar.glassBarButtonBackgroundColor,
+                    size: CGSize(width: 44.0, height: 44.0),
+                    backgroundColor: nil,
                     isDark: environment.theme.overallDarkAppearance,
-                    state: .generic,
+                    state: .glass,
                     component: AnyComponentWithIdentity(id: "close", component: AnyComponent(
                         BundleIconComponent(
                             name: "Navigation/Close",

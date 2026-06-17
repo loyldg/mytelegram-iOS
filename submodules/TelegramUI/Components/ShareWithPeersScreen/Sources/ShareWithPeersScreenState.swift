@@ -4,7 +4,6 @@ import TelegramCore
 import AccountContext
 import TelegramUIPreferences
 import TemporaryCachedPeerDataManager
-import Postbox
 
 public extension ShareWithPeersScreen {
     final class State {
@@ -524,11 +523,11 @@ public extension ShareWithPeersScreen {
                 let contactsState = Promise<ChannelMemberListState>()
 
                 let disposableAndLoadMoreControl: (Disposable, PeerChannelMemberCategoryControl?)
-                disposableAndLoadMoreControl = context.peerChannelMemberCategoriesContextsManager.recent(engine: context.engine, postbox: context.account.postbox, network: context.account.network, accountPeerId: context.account.peerId, peerId: peerId, searchQuery: searchQuery, updated: { state in
+                disposableAndLoadMoreControl = context.peerChannelMemberCategoriesContextsManager.recent(engine: context.engine, accountPeerId: context.account.peerId, peerId: peerId, searchQuery: searchQuery, updated: { state in
                     membersState.set(.single(state))
                 })
                 
-                let contactsDisposableAndLoadMoreControl = context.peerChannelMemberCategoriesContextsManager.contacts(engine: context.engine, postbox: context.account.postbox, network: context.account.network, accountPeerId: context.account.peerId, peerId: peerId, searchQuery: searchQuery, updated: { state in
+                let contactsDisposableAndLoadMoreControl = context.peerChannelMemberCategoriesContextsManager.contacts(engine: context.engine, accountPeerId: context.account.peerId, peerId: peerId, searchQuery: searchQuery, updated: { state in
                     contactsState.set(.single(state))
                 })
                 
@@ -555,7 +554,7 @@ public extension ShareWithPeersScreen {
                             continue
                         }
                         
-                        peers.append(EnginePeer(participant.peer))
+                        peers.append(participant.peer)
                         existingPeersIds.insert(participant.peer.id)
                     }
                     
@@ -563,7 +562,7 @@ public extension ShareWithPeersScreen {
                         if participant.peer.isDeleted || existingPeersIds.contains(participant.peer.id) || participant.participant.adminInfo != nil {
                             continue
                         }
-                        if let user = participant.peer as? TelegramUser, user.botInfo != nil {
+                        if case let .user(user) = participant.peer, user.botInfo != nil {
                             continue
                         }
                         
@@ -573,7 +572,7 @@ public extension ShareWithPeersScreen {
                             continue
                         }
                         
-                        peers.append(EnginePeer(participant.peer))
+                        peers.append(participant.peer)
                     }
                     
                     let state = State(
@@ -650,9 +649,9 @@ public extension ShareWithPeersScreen {
                         }
                     }
                  
-                    let queryTokens = stringIndexTokens(searchQuery ?? "", transliteration: .combined)
-                    func peerMatchesTokens(peer: EnginePeer, tokens: [ValueBoxKey]) -> Bool {
-                        if matchStringIndexTokens(peer.indexName._asIndexName().indexTokens, with: queryTokens) {
+                    let queryTokens = context.engine.peers.tokenizeSearchString(string: searchQuery ?? "", transliteration: .combined)
+                    func peerMatchesTokens(peer: EnginePeer, tokens: [EngineDataBuffer]) -> Bool {
+                        if context.engine.peers.matchSearchTokens(peer.indexName._asIndexName().indexTokens, with: queryTokens) {
                             return true
                         }
                         return false

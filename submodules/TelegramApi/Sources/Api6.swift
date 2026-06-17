@@ -153,13 +153,13 @@ public extension Api {
             var _7: Int64?
             _7 = reader.readInt64()
             var _8: [Api.PhotoSize]?
-            if Int(_1!) & Int(1 << 0) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 0) != 0 {
                 if let _ = reader.readInt32() {
                     _8 = Api.parseVector(reader, elementSignature: 0, elementType: Api.PhotoSize.self)
                 }
             }
             var _9: [Api.VideoSize]?
-            if Int(_1!) & Int(1 << 1) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 1) != 0 {
                 if let _ = reader.readInt32() {
                     _9 = Api.parseVector(reader, elementSignature: 0, elementType: Api.VideoSize.self)
                 }
@@ -177,8 +177,8 @@ public extension Api {
             let _c5 = _5 != nil
             let _c6 = _6 != nil
             let _c7 = _7 != nil
-            let _c8 = (Int(_1!) & Int(1 << 0) == 0) || _8 != nil
-            let _c9 = (Int(_1!) & Int(1 << 1) == 0) || _9 != nil
+            let _c8 = (Int(_1 ?? 0) & Int(1 << 0) == 0) || _8 != nil
+            let _c9 = (Int(_1 ?? 0) & Int(1 << 1) == 0) || _9 != nil
             let _c10 = _10 != nil
             let _c11 = _11 != nil
             if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 && _c8 && _c9 && _c10 && _c11 {
@@ -409,22 +409,22 @@ public extension Api {
             var _2: Int32?
             _2 = reader.readInt32()
             var _3: String?
-            if Int(_1!) & Int(1 << 0) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 0) != 0 {
                 _3 = parseString(reader)
             }
             var _4: String?
-            if Int(_1!) & Int(1 << 1) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 1) != 0 {
                 _4 = parseString(reader)
             }
             var _5: Buffer?
-            if Int(_1!) & Int(1 << 2) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 2) != 0 {
                 _5 = parseBytes(reader)
             }
             let _c1 = _1 != nil
             let _c2 = _2 != nil
-            let _c3 = (Int(_1!) & Int(1 << 0) == 0) || _3 != nil
-            let _c4 = (Int(_1!) & Int(1 << 1) == 0) || _4 != nil
-            let _c5 = (Int(_1!) & Int(1 << 2) == 0) || _5 != nil
+            let _c3 = (Int(_1 ?? 0) & Int(1 << 0) == 0) || _3 != nil
+            let _c4 = (Int(_1 ?? 0) & Int(1 << 1) == 0) || _4 != nil
+            let _c5 = (Int(_1 ?? 0) & Int(1 << 2) == 0) || _5 != nil
             if _c1 && _c2 && _c3 && _c4 && _c5 {
                 return Api.DocumentAttribute.documentAttributeAudio(Cons_documentAttributeAudio(flags: _1!, duration: _2!, title: _3, performer: _4, waveform: _5))
             }
@@ -489,7 +489,7 @@ public extension Api {
                 _3 = Api.parse(reader, signature: signature) as? Api.InputStickerSet
             }
             var _4: Api.MaskCoords?
-            if Int(_1!) & Int(1 << 0) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 0) != 0 {
                 if let signature = reader.readInt32() {
                     _4 = Api.parse(reader, signature: signature) as? Api.MaskCoords
                 }
@@ -497,7 +497,7 @@ public extension Api {
             let _c1 = _1 != nil
             let _c2 = _2 != nil
             let _c3 = _3 != nil
-            let _c4 = (Int(_1!) & Int(1 << 0) == 0) || _4 != nil
+            let _c4 = (Int(_1 ?? 0) & Int(1 << 0) == 0) || _4 != nil
             if _c1 && _c2 && _c3 && _c4 {
                 return Api.DocumentAttribute.documentAttributeSticker(Cons_documentAttributeSticker(flags: _1!, alt: _2!, stickerset: _3!, maskCoords: _4))
             }
@@ -515,24 +515,24 @@ public extension Api {
             var _4: Int32?
             _4 = reader.readInt32()
             var _5: Int32?
-            if Int(_1!) & Int(1 << 2) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 2) != 0 {
                 _5 = reader.readInt32()
             }
             var _6: Double?
-            if Int(_1!) & Int(1 << 4) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 4) != 0 {
                 _6 = reader.readDouble()
             }
             var _7: String?
-            if Int(_1!) & Int(1 << 5) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 5) != 0 {
                 _7 = parseString(reader)
             }
             let _c1 = _1 != nil
             let _c2 = _2 != nil
             let _c3 = _3 != nil
             let _c4 = _4 != nil
-            let _c5 = (Int(_1!) & Int(1 << 2) == 0) || _5 != nil
-            let _c6 = (Int(_1!) & Int(1 << 4) == 0) || _6 != nil
-            let _c7 = (Int(_1!) & Int(1 << 5) == 0) || _7 != nil
+            let _c5 = (Int(_1 ?? 0) & Int(1 << 2) == 0) || _5 != nil
+            let _c6 = (Int(_1 ?? 0) & Int(1 << 4) == 0) || _6 != nil
+            let _c7 = (Int(_1 ?? 0) & Int(1 << 5) == 0) || _7 != nil
             if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 {
                 return Api.DocumentAttribute.documentAttributeVideo(Cons_documentAttributeVideo(flags: _1!, duration: _2!, w: _3!, h: _4!, preloadPrefixSize: _5, videoStartTs: _6, videoCodec: _7))
             }
@@ -553,7 +553,8 @@ public extension Api {
             public var date: Int32
             public var effect: Int64?
             public var suggestedPost: Api.SuggestedPost?
-            public init(flags: Int32, replyTo: Api.InputReplyTo?, message: String, entities: [Api.MessageEntity]?, media: Api.InputMedia?, date: Int32, effect: Int64?, suggestedPost: Api.SuggestedPost?) {
+            public var richMessage: Api.RichMessage?
+            public init(flags: Int32, replyTo: Api.InputReplyTo?, message: String, entities: [Api.MessageEntity]?, media: Api.InputMedia?, date: Int32, effect: Int64?, suggestedPost: Api.SuggestedPost?, richMessage: Api.RichMessage?) {
                 self.flags = flags
                 self.replyTo = replyTo
                 self.message = message
@@ -562,9 +563,10 @@ public extension Api {
                 self.date = date
                 self.effect = effect
                 self.suggestedPost = suggestedPost
+                self.richMessage = richMessage
             }
             public func descriptionFields() -> (String, [(String, ConstructorParameterDescription)]) {
-                return ("draftMessage", [("flags", ConstructorParameterDescription(self.flags)), ("replyTo", ConstructorParameterDescription(self.replyTo)), ("message", ConstructorParameterDescription(self.message)), ("entities", ConstructorParameterDescription(self.entities)), ("media", ConstructorParameterDescription(self.media)), ("date", ConstructorParameterDescription(self.date)), ("effect", ConstructorParameterDescription(self.effect)), ("suggestedPost", ConstructorParameterDescription(self.suggestedPost))])
+                return ("draftMessage", [("flags", ConstructorParameterDescription(self.flags)), ("replyTo", ConstructorParameterDescription(self.replyTo)), ("message", ConstructorParameterDescription(self.message)), ("entities", ConstructorParameterDescription(self.entities)), ("media", ConstructorParameterDescription(self.media)), ("date", ConstructorParameterDescription(self.date)), ("effect", ConstructorParameterDescription(self.effect)), ("suggestedPost", ConstructorParameterDescription(self.suggestedPost)), ("richMessage", ConstructorParameterDescription(self.richMessage))])
             }
         }
         public class Cons_draftMessageEmpty: TypeConstructorDescription {
@@ -585,7 +587,7 @@ public extension Api {
             switch self {
             case .draftMessage(let _data):
                 if boxed {
-                    buffer.appendInt32(-1763006997)
+                    buffer.appendInt32(1627271828)
                 }
                 serializeInt32(_data.flags, buffer: buffer, boxed: false)
                 if Int(_data.flags) & Int(1 << 4) != 0 {
@@ -609,6 +611,9 @@ public extension Api {
                 if Int(_data.flags) & Int(1 << 8) != 0 {
                     _data.suggestedPost!.serialize(buffer, true)
                 }
+                if Int(_data.flags) & Int(1 << 9) != 0 {
+                    _data.richMessage!.serialize(buffer, true)
+                }
                 break
             case .draftMessageEmpty(let _data):
                 if boxed {
@@ -625,7 +630,7 @@ public extension Api {
         public func descriptionFields() -> (String, [(String, ConstructorParameterDescription)]) {
             switch self {
             case .draftMessage(let _data):
-                return ("draftMessage", [("flags", ConstructorParameterDescription(_data.flags)), ("replyTo", ConstructorParameterDescription(_data.replyTo)), ("message", ConstructorParameterDescription(_data.message)), ("entities", ConstructorParameterDescription(_data.entities)), ("media", ConstructorParameterDescription(_data.media)), ("date", ConstructorParameterDescription(_data.date)), ("effect", ConstructorParameterDescription(_data.effect)), ("suggestedPost", ConstructorParameterDescription(_data.suggestedPost))])
+                return ("draftMessage", [("flags", ConstructorParameterDescription(_data.flags)), ("replyTo", ConstructorParameterDescription(_data.replyTo)), ("message", ConstructorParameterDescription(_data.message)), ("entities", ConstructorParameterDescription(_data.entities)), ("media", ConstructorParameterDescription(_data.media)), ("date", ConstructorParameterDescription(_data.date)), ("effect", ConstructorParameterDescription(_data.effect)), ("suggestedPost", ConstructorParameterDescription(_data.suggestedPost)), ("richMessage", ConstructorParameterDescription(_data.richMessage))])
             case .draftMessageEmpty(let _data):
                 return ("draftMessageEmpty", [("flags", ConstructorParameterDescription(_data.flags)), ("date", ConstructorParameterDescription(_data.date))])
             }
@@ -635,7 +640,7 @@ public extension Api {
             var _1: Int32?
             _1 = reader.readInt32()
             var _2: Api.InputReplyTo?
-            if Int(_1!) & Int(1 << 4) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 4) != 0 {
                 if let signature = reader.readInt32() {
                     _2 = Api.parse(reader, signature: signature) as? Api.InputReplyTo
                 }
@@ -643,13 +648,13 @@ public extension Api {
             var _3: String?
             _3 = parseString(reader)
             var _4: [Api.MessageEntity]?
-            if Int(_1!) & Int(1 << 3) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 3) != 0 {
                 if let _ = reader.readInt32() {
                     _4 = Api.parseVector(reader, elementSignature: 0, elementType: Api.MessageEntity.self)
                 }
             }
             var _5: Api.InputMedia?
-            if Int(_1!) & Int(1 << 5) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 5) != 0 {
                 if let signature = reader.readInt32() {
                     _5 = Api.parse(reader, signature: signature) as? Api.InputMedia
                 }
@@ -657,25 +662,32 @@ public extension Api {
             var _6: Int32?
             _6 = reader.readInt32()
             var _7: Int64?
-            if Int(_1!) & Int(1 << 7) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 7) != 0 {
                 _7 = reader.readInt64()
             }
             var _8: Api.SuggestedPost?
-            if Int(_1!) & Int(1 << 8) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 8) != 0 {
                 if let signature = reader.readInt32() {
                     _8 = Api.parse(reader, signature: signature) as? Api.SuggestedPost
                 }
             }
+            var _9: Api.RichMessage?
+            if Int(_1 ?? 0) & Int(1 << 9) != 0 {
+                if let signature = reader.readInt32() {
+                    _9 = Api.parse(reader, signature: signature) as? Api.RichMessage
+                }
+            }
             let _c1 = _1 != nil
-            let _c2 = (Int(_1!) & Int(1 << 4) == 0) || _2 != nil
+            let _c2 = (Int(_1 ?? 0) & Int(1 << 4) == 0) || _2 != nil
             let _c3 = _3 != nil
-            let _c4 = (Int(_1!) & Int(1 << 3) == 0) || _4 != nil
-            let _c5 = (Int(_1!) & Int(1 << 5) == 0) || _5 != nil
+            let _c4 = (Int(_1 ?? 0) & Int(1 << 3) == 0) || _4 != nil
+            let _c5 = (Int(_1 ?? 0) & Int(1 << 5) == 0) || _5 != nil
             let _c6 = _6 != nil
-            let _c7 = (Int(_1!) & Int(1 << 7) == 0) || _7 != nil
-            let _c8 = (Int(_1!) & Int(1 << 8) == 0) || _8 != nil
-            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 && _c8 {
-                return Api.DraftMessage.draftMessage(Cons_draftMessage(flags: _1!, replyTo: _2, message: _3!, entities: _4, media: _5, date: _6!, effect: _7, suggestedPost: _8))
+            let _c7 = (Int(_1 ?? 0) & Int(1 << 7) == 0) || _7 != nil
+            let _c8 = (Int(_1 ?? 0) & Int(1 << 8) == 0) || _8 != nil
+            let _c9 = (Int(_1 ?? 0) & Int(1 << 9) == 0) || _9 != nil
+            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 && _c8 && _c9 {
+                return Api.DraftMessage.draftMessage(Cons_draftMessage(flags: _1!, replyTo: _2, message: _3!, entities: _4, media: _5, date: _6!, effect: _7, suggestedPost: _8, richMessage: _9))
             }
             else {
                 return nil
@@ -685,11 +697,11 @@ public extension Api {
             var _1: Int32?
             _1 = reader.readInt32()
             var _2: Int32?
-            if Int(_1!) & Int(1 << 0) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 0) != 0 {
                 _2 = reader.readInt32()
             }
             let _c1 = _1 != nil
-            let _c2 = (Int(_1!) & Int(1 << 0) == 0) || _2 != nil
+            let _c2 = (Int(_1 ?? 0) & Int(1 << 0) == 0) || _2 != nil
             if _c1 && _c2 {
                 return Api.DraftMessage.draftMessageEmpty(Cons_draftMessageEmpty(flags: _1!, date: _2))
             }
@@ -1422,12 +1434,12 @@ public extension Api {
             var _2: Int64?
             _2 = reader.readInt64()
             var _3: Int32?
-            if Int(_1!) & Int(1 << 0) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 0) != 0 {
                 _3 = reader.readInt32()
             }
             let _c1 = _1 != nil
             let _c2 = _2 != nil
-            let _c3 = (Int(_1!) & Int(1 << 0) == 0) || _3 != nil
+            let _c3 = (Int(_1 ?? 0) & Int(1 << 0) == 0) || _3 != nil
             if _c1 && _c2 && _c3 {
                 return Api.EmojiStatus.emojiStatus(Cons_emojiStatus(flags: _1!, documentId: _2!, until: _3))
             }
@@ -1457,7 +1469,7 @@ public extension Api {
             var _10: Int32?
             _10 = reader.readInt32()
             var _11: Int32?
-            if Int(_1!) & Int(1 << 0) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 0) != 0 {
                 _11 = reader.readInt32()
             }
             let _c1 = _1 != nil
@@ -1470,7 +1482,7 @@ public extension Api {
             let _c8 = _8 != nil
             let _c9 = _9 != nil
             let _c10 = _10 != nil
-            let _c11 = (Int(_1!) & Int(1 << 0) == 0) || _11 != nil
+            let _c11 = (Int(_1 ?? 0) & Int(1 << 0) == 0) || _11 != nil
             if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 && _c8 && _c9 && _c10 && _c11 {
                 return Api.EmojiStatus.emojiStatusCollectible(Cons_emojiStatusCollectible(flags: _1!, collectibleId: _2!, documentId: _3!, title: _4!, slug: _5!, patternDocumentId: _6!, centerColor: _7!, edgeColor: _8!, patternColor: _9!, textColor: _10!, until: _11))
             }
@@ -1487,12 +1499,12 @@ public extension Api {
             var _2: Int64?
             _2 = reader.readInt64()
             var _3: Int32?
-            if Int(_1!) & Int(1 << 0) != 0 {
+            if Int(_1 ?? 0) & Int(1 << 0) != 0 {
                 _3 = reader.readInt32()
             }
             let _c1 = _1 != nil
             let _c2 = _2 != nil
-            let _c3 = (Int(_1!) & Int(1 << 0) == 0) || _3 != nil
+            let _c3 = (Int(_1 ?? 0) & Int(1 << 0) == 0) || _3 != nil
             if _c1 && _c2 && _c3 {
                 return Api.EmojiStatus.inputEmojiStatusCollectible(Cons_inputEmojiStatusCollectible(flags: _1!, collectibleId: _2!, until: _3))
             }

@@ -7,6 +7,7 @@ public func tagsForStoreMessage(incoming: Bool, attributes: [MessageAttribute], 
     var isSecret = false
     var isUnconsumedPersonalMention = false
     var hasUnseenReactions = false
+    var richText: RichTextMessageAttribute?
     for attribute in attributes {
         if let timerAttribute = attribute as? AutoclearTimeoutMessageAttribute {
             if timerAttribute.timeout > 0 && (timerAttribute.timeout <= 60 || timerAttribute.timeout == viewOnceTimeout) {
@@ -22,6 +23,8 @@ public func tagsForStoreMessage(incoming: Bool, attributes: [MessageAttribute], 
             }
         } else if let attribute = attribute as? ReactionsMessageAttribute, attribute.hasUnseen {
             hasUnseenReactions = true
+        } else if let attribute = attribute as? RichTextMessageAttribute {
+            richText = attribute
         }
     }
     
@@ -132,6 +135,63 @@ public func tagsForStoreMessage(incoming: Bool, attributes: [MessageAttribute], 
     
     if hasUnseenPollVotes {
         tags.insert(.unseenPollVote)
+    }
+    
+    if let attribute = richText {
+        //TODO:rewrite to take all media
+        for media in attribute.instantPage.allMedia() {
+            switch media {
+            case _ as TelegramMediaImage:
+                tags.insert(.photo)
+                tags.insert(.photoOrVideo)
+            case let file as TelegramMediaFile:
+                var refinedTag: MessageTags? = .file
+                var isAnimated = false
+                inner: for attribute in file.attributes {
+                    switch attribute {
+                        case let .Video(_, _, flags, _, _, _):
+                            if flags.contains(.instantRoundVideo) {
+                                refinedTag = .voiceOrInstantVideo
+                            } else {
+                                if !isSecret {
+                                    refinedTag = [.photoOrVideo, .video]
+                                } else {
+                                    refinedTag = nil
+                                }
+                            }
+                        case let .Audio(isVoice, _, _, _, _):
+                            if isVoice {
+                                refinedTag = .voiceOrInstantVideo
+                            } else {
+                                if file.isInstantVideo {
+                                    refinedTag = .voiceOrInstantVideo
+                                } else {
+                                    refinedTag = .music
+                                }
+                            }
+                            break inner
+                        case .Sticker:
+                            refinedTag = nil
+                            break inner
+                        case .Animated:
+                            isAnimated = true
+                        default:
+                            break
+                    }
+                }
+                if isAnimated {
+                    refinedTag = .gif
+                }
+                if file.isAnimatedSticker {
+                    refinedTag = nil
+                }
+                if let refinedTag {
+                    tags.insert(refinedTag)
+                }
+            default:
+                break
+            }
+        }
     }
     
     return (tags, globalTags)
@@ -463,7 +523,7 @@ func textMediaAndExpirationTimerFromApiMedia(_ media: Api.MessageMedia?, _ peerI
             let (poll, results) = (messageMediaPollData.poll, messageMediaPollData.results)
             switch poll {
             case let .poll(pollData):
-                let (id, flags, question, answers, closePeriod, closeDate, pollHash) = (pollData.id, pollData.flags, pollData.question, pollData.answers, pollData.closePeriod, pollData.closeDate, pollData.hash)
+                let (id, flags, question, answers, closePeriod, closeDate, pollHash, countries) = (pollData.id, pollData.flags, pollData.question, pollData.answers, pollData.closePeriod, pollData.closeDate, pollData.hash, pollData.countriesIso2)
                 let publicity: TelegramMediaPollPublicity
                 if (flags & (1 << 1)) != 0 {
                     publicity = .public
@@ -482,7 +542,8 @@ func textMediaAndExpirationTimerFromApiMedia(_ media: Api.MessageMedia?, _ peerI
                 let shuffleAnswers = (flags & (1 << 8)) != 0
                 let hideResultsUntilClose = (flags & (1 << 9)) != 0
                 let isCreator = (flags & (1 << 10)) != 0
-
+                let restrictToSubscribers = (flags & (1 << 11)) != 0
+                
                 let questionText: String
                 let questionEntities: [MessageTextEntity]
                 switch question {
@@ -496,7 +557,7 @@ func textMediaAndExpirationTimerFromApiMedia(_ media: Api.MessageMedia?, _ peerI
                 if let apiAttachedMedia = messageMediaPollData.attachedMedia {
                     parsedAttachedMedia = textMediaAndExpirationTimerFromApiMedia(apiAttachedMedia, peerId).media
                 }
-                return (TelegramMediaPoll(pollId: MediaId(namespace: Namespaces.Media.CloudPoll, id: id), publicity: publicity, kind: kind, text: questionText, textEntities: questionEntities, options: answers.map(TelegramMediaPollOption.init(apiOption:)), correctAnswers: nil, results: TelegramMediaPollResults(apiResults: results), isClosed: (flags & (1 << 0)) != 0, deadlineTimeout: closePeriod, deadlineDate: closeDate, pollHash: pollHash, openAnswers: openAnswers, revotingDisabled: revotingDisabled, shuffleAnswers: shuffleAnswers, hideResultsUntilClose: hideResultsUntilClose, isCreator: isCreator, attachedMedia: parsedAttachedMedia), nil, nil, nil, nil, nil)
+                return (TelegramMediaPoll(pollId: MediaId(namespace: Namespaces.Media.CloudPoll, id: id), publicity: publicity, kind: kind, text: questionText, textEntities: questionEntities, options: answers.map(TelegramMediaPollOption.init(apiOption:)), correctAnswers: nil, results: TelegramMediaPollResults(apiResults: results), isClosed: (flags & (1 << 0)) != 0, deadlineTimeout: closePeriod, deadlineDate: closeDate, pollHash: pollHash, openAnswers: openAnswers, revotingDisabled: revotingDisabled, shuffleAnswers: shuffleAnswers, hideResultsUntilClose: hideResultsUntilClose, isCreator: isCreator, attachedMedia: parsedAttachedMedia, restrictToSubscribers: restrictToSubscribers, countries: countries ?? []), nil, nil, nil, nil, nil)
             }
         case let .messageMediaToDo(messageMediaToDoData):
             let (todo, completions) = (messageMediaToDoData.todo, messageMediaToDoData.completions)
@@ -847,7 +908,7 @@ extension StoreMessage {
     convenience init?(apiMessage: Api.Message, accountPeerId: PeerId, peerIsForum: Bool, namespace: MessageId.Namespace = Namespaces.Message.Cloud) {
         switch apiMessage {
             case let .message(messageData):
-                let (flags, flags2, id, fromId, boosts, rank, chatPeerId, savedPeerId, fwdFrom, viaBotId, viaBusinessBotId, replyTo, date, message, media, replyMarkup, entities, views, forwards, replies, editDate, postAuthor, groupingId, reactions, restrictionReason, ttlPeriod, quickReplyShortcutId, messageEffectId, factCheck, reportDeliveryUntilDate, paidMessageStars, suggestedPost, scheduledRepeatPeriod, summaryFromLanguage) = (messageData.flags, messageData.flags2, messageData.id, messageData.fromId, messageData.fromBoostsApplied, messageData.fromRank, messageData.peerId, messageData.savedPeerId, messageData.fwdFrom, messageData.viaBotId, messageData.viaBusinessBotId, messageData.replyTo, messageData.date, messageData.message, messageData.media, messageData.replyMarkup, messageData.entities, messageData.views, messageData.forwards, messageData.replies, messageData.editDate, messageData.postAuthor, messageData.groupedId, messageData.reactions, messageData.restrictionReason, messageData.ttlPeriod, messageData.quickReplyShortcutId, messageData.effect, messageData.factcheck, messageData.reportDeliveryUntilDate, messageData.paidMessageStars, messageData.suggestedPost, messageData.scheduleRepeatPeriod, messageData.summaryFromLanguage)
+                let (flags, flags2, id, fromId, boosts, rank, chatPeerId, savedPeerId, fwdFrom, viaBotId, viaBusinessBotId, guestChatViaFrom, replyTo, date, message, media, replyMarkup, entities, views, forwards, replies, editDate, postAuthor, groupingId, reactions, restrictionReason, ttlPeriod, quickReplyShortcutId, messageEffectId, factCheck, reportDeliveryUntilDate, paidMessageStars, suggestedPost, scheduledRepeatPeriod, summaryFromLanguage) = (messageData.flags, messageData.flags2, messageData.id, messageData.fromId, messageData.fromBoostsApplied, messageData.fromRank, messageData.peerId, messageData.savedPeerId, messageData.fwdFrom, messageData.viaBotId, messageData.viaBusinessBotId, messageData.guestchatViaFrom, messageData.replyTo, messageData.date, messageData.message, messageData.media, messageData.replyMarkup, messageData.entities, messageData.views, messageData.forwards, messageData.replies, messageData.editDate, messageData.postAuthor, messageData.groupedId, messageData.reactions, messageData.restrictionReason, messageData.ttlPeriod, messageData.quickReplyShortcutId, messageData.effect, messageData.factcheck, messageData.reportDeliveryUntilDate, messageData.paidMessageStars, messageData.suggestedPost, messageData.scheduleRepeatPeriod, messageData.summaryFromLanguage)
                 var attributes: [MessageAttribute] = []
 
                 if (flags2 & (1 << 4)) != 0 {
@@ -1086,6 +1147,10 @@ extension StoreMessage {
                 if let viaBusinessBotId {
                     attributes.append(InlineBusinessBotMessageAttribute(peerId: PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(viaBusinessBotId)), title: nil))
                 }
+            
+                if let guestChatViaFrom {
+                    attributes.append(GuestChatMessageAttribute(peerId: guestChatViaFrom.peerId))
+                }
                 
                 if !Namespaces.Message.allNonRegular.contains(namespace) {
                     if let views = views {
@@ -1128,7 +1193,7 @@ extension StoreMessage {
                 }
             
                 var entitiesAttribute: TextEntitiesMessageAttribute?
-                if let entities = entities, !entities.isEmpty {
+                if let entities, !entities.isEmpty {
                     let attribute = TextEntitiesMessageAttribute(entities: messageTextEntitiesFromApiEntities(entities))
                     entitiesAttribute = attribute
                     attributes.append(attribute)
@@ -1149,6 +1214,10 @@ extension StoreMessage {
                         entitiesAttribute = attribute
                         attributes.append(attribute)
                     }
+                }
+            
+                if let richMessage = messageData.richMessage {
+                    attributes.append(RichTextMessageAttribute(apiRichMessage: richMessage))
                 }
                 
                 if (flags & (1 << 19)) != 0 {
@@ -1341,6 +1410,8 @@ extension StoreMessage {
                             attributes.append(ReplyMessageAttribute(messageId: MessageId(peerId: replyPeerId, namespace: Namespaces.Message.Cloud, id: replyToMsgId), threadMessageId: threadMessageId, quote: quote, isQuote: isQuote, innerSubject: innerSubject))
                         } else if let replyHeader = replyHeader {
                             attributes.append(QuotedReplyMessageAttribute(apiHeader: replyHeader, quote: quote, isQuote: isQuote))
+                        } else if let replyToTopId, peerIsForum {
+                            threadId = Int64(replyToTopId)
                         }
                     case let .messageReplyStoryHeader(messageReplyStoryHeaderData):
                         let (peer, storyId) = (messageReplyStoryHeaderData.peer, messageReplyStoryHeaderData.storyId)

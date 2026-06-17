@@ -2,7 +2,6 @@ import Foundation
 import UIKit
 import Display
 import SwiftSignalKit
-import Postbox
 import TelegramCore
 import TelegramPresentationData
 import TelegramUIPreferences
@@ -294,7 +293,7 @@ private enum ChannelAdminsEntry: ItemListNodeEntry {
                                 if peer.id == participant.peer.id {
                                     peerText = strings.Channel_Management_LabelAdministrator
                                 } else {
-                                    peerText = strings.Channel_Management_PromotedBy(EnginePeer(peer).displayTitle(strings: strings, displayOrder: nameDisplayOrder)).string
+                                    peerText = strings.Channel_Management_PromotedBy(peer.displayTitle(strings: strings, displayOrder: nameDisplayOrder)).string
                                 }
                             } else {
                                 peerText = ""
@@ -323,7 +322,7 @@ private enum ChannelAdminsEntry: ItemListNodeEntry {
                     .init(type: .destructive, title: presentationData.strings.Channel_Management_DismissAdmin, action: { arguments.removeAdmin(participant.peer.id) })
                 ])
                 
-                return ItemListPeerItem(presentationData: presentationData, systemStyle: .glass, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, context: arguments.context, peer: EnginePeer(participant.peer), presence: participant.presences[participant.peer.id].flatMap { EnginePeer.Presence($0) }, text: peerText.isEmpty ? .presence : .text(peerText, .secondary), label: label, editing: editing, revealOptions: revealOptions, switchValue: nil, enabled: enabled, selectable: true, sectionId: self.section, action: action, setPeerIdWithRevealedOptions: { previousId, id in
+                return ItemListPeerItem(presentationData: presentationData, systemStyle: .glass, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, context: arguments.context, peer: participant.peer, presence: participant.presences[participant.peer.id].flatMap { EnginePeer.Presence($0) }, text: peerText.isEmpty ? .presence : .text(peerText, .secondary), label: label, editing: editing, revealOptions: revealOptions, switchValue: nil, enabled: enabled, selectable: true, sectionId: self.section, action: action, setPeerIdWithRevealedOptions: { previousId, id in
                         arguments.setPeerIdWithRevealedOptions(previousId, id)
                     }, removePeer: { peerId in
                         arguments.removeAdmin(peerId)
@@ -731,7 +730,7 @@ public func channelAdminsController(context: AccountContext, updatedPresentation
                 }
                 if case .legacyGroup = peer {
                 } else {
-                    pushControllerImpl?(context.sharedContext.makeChatRecentActionsController(context: context, peer: peer._asPeer(), adminPeerId: nil, starsState: nil))
+                    pushControllerImpl?(context.sharedContext.makeChatRecentActionsController(context: context, peer: peer, adminPeerId: nil, starsState: nil))
                 }
             })
         })
@@ -845,7 +844,7 @@ public func channelAdminsController(context: AccountContext, updatedPresentation
     |> deliverOnMainQueue).start(next: { peerId in
         if peerId.namespace == Namespaces.Peer.CloudChannel {
             var didReportLoadCompleted = false
-            let membersAndLoadMoreControl: (Disposable, PeerChannelMemberCategoryControl?) = context.peerChannelMemberCategoriesContextsManager.admins(engine: context.engine, postbox: context.account.postbox, network: context.account.network, accountPeerId: context.account.peerId, peerId: peerId) { membersState in
+            let membersAndLoadMoreControl: (Disposable, PeerChannelMemberCategoryControl?) = context.peerChannelMemberCategoriesContextsManager.admins(engine: context.engine, accountPeerId: context.account.peerId, peerId: peerId) { membersState in
                 if case .loading = membersState.loadingState, membersState.list.isEmpty {
                     adminsPromise.set(.single(nil))
                 } else {
@@ -912,18 +911,18 @@ public func channelAdminsController(context: AccountContext, updatedPresentation
                     }
                     for (participant, peer, presence) in participants {
                         if let peer {
-                            var presences: [PeerId: PeerPresence] = [:]
+                            var presences: [EnginePeer.Id: EngineRawPeerPresence] = [:]
                             if let presence {
                                 presences[peer.id] = presence._asPresence()
                             }
                             switch participant {
                             case let .creator(_, rank):
-                                result.append(RenderedChannelParticipant(participant: .creator(id: peer.id, adminInfo: nil, rank: rank), peer: peer._asPeer(), presences: presences))
+                                result.append(RenderedChannelParticipant(participant: .creator(id: peer.id, adminInfo: nil, rank: rank), peer: peer, presences: presences))
                             case let .admin(_, _, _, rank):
                                 var peers: [EnginePeer.Id: EnginePeer] = [:]
                                 peers[creator.id] = creator
                                 peers[peer.id] = peer
-                                result.append(RenderedChannelParticipant(participant: .member(id: peer.id, invitedAt: 0, adminInfo: ChannelParticipantAdminInfo(rights: TelegramChatAdminRights(rights: .internal_groupSpecific), promotedBy: creator.id, canBeEditedByAccountPeer: creator.id == context.account.peerId), banInfo: nil, rank: rank, subscriptionUntilDate: nil), peer: peer._asPeer(), peers: peers.mapValues({ $0._asPeer() }), presences: presences))
+                                result.append(RenderedChannelParticipant(participant: .member(id: peer.id, invitedAt: 0, adminInfo: ChannelParticipantAdminInfo(rights: TelegramChatAdminRights(rights: .internal_groupSpecific), promotedBy: creator.id, canBeEditedByAccountPeer: creator.id == context.account.peerId), banInfo: nil, rank: rank, subscriptionUntilDate: nil), peer: peer, peers: peers, presences: presences))
                             case .member:
                                 break
                             }
@@ -974,7 +973,7 @@ public func channelAdminsController(context: AccountContext, updatedPresentation
         var secondaryRightNavigationButton: ItemListNavigationButton?
         if let admins = admins, admins.count > 1 {
             if state.editing {
-                rightNavigationButton = ItemListNavigationButton(content: .text(presentationData.strings.Common_Done), style: .bold, enabled: true, action: {
+                rightNavigationButton = ItemListNavigationButton(content: .icon(.done), style: .bold, enabled: true, action: {
                     updateState { state in
                         return state.withUpdatedEditing(false)
                     }

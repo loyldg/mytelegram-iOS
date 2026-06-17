@@ -16,7 +16,6 @@ import ChatListSearchItemHeader
 import PremiumUI
 import AnimationCache
 import MultiAnimationRenderer
-import Postbox
 import ChatFolderLinkPreviewScreen
 import StoryContainerScreen
 import ChatListHeaderComponent
@@ -107,6 +106,7 @@ public final class ChatListNodeInteraction {
     let openActiveSessions: () -> Void
     let openBirthdaySetup: () -> Void
     let performActiveSessionAction: (NewSessionReview, Bool) -> Void
+    let performBotConnectionReviewAction: (NewBotConnectionReview, Bool) -> Void
     let openChatFolderUpdates: () -> Void
     let hideChatFolderUpdates: () -> Void
     let openStories: (ChatListNode.OpenStoriesSubject, ASDisplayNode?) -> Void
@@ -167,6 +167,7 @@ public final class ChatListNodeInteraction {
         openActiveSessions: @escaping () -> Void,
         openBirthdaySetup: @escaping () -> Void,
         performActiveSessionAction: @escaping (NewSessionReview, Bool) -> Void,
+        performBotConnectionReviewAction: @escaping (NewBotConnectionReview, Bool) -> Void,
         openChatFolderUpdates: @escaping () -> Void,
         hideChatFolderUpdates: @escaping () -> Void,
         openStories: @escaping (ChatListNode.OpenStoriesSubject, ASDisplayNode?) -> Void,
@@ -214,6 +215,7 @@ public final class ChatListNodeInteraction {
         self.openActiveSessions = openActiveSessions
         self.openBirthdaySetup = openBirthdaySetup
         self.performActiveSessionAction = performActiveSessionAction
+        self.performBotConnectionReviewAction = performBotConnectionReviewAction
         self.openChatFolderUpdates = openChatFolderUpdates
         self.hideChatFolderUpdates = hideChatFolderUpdates
         self.openStories = openStories
@@ -503,7 +505,7 @@ private func mappedInsertEntries(context: AccountContext, nodeInteraction: ChatL
                     } else {
                         if filter.contains(.onlyWriteable) {
                             if let peer = peer.peers[peer.peerId] {
-                                if !canSendMessagesToPeer(peer._asPeer()) {
+                                if !canSendMessagesToPeer(peer) {
                                     enabled = false
                                 }
                                 if peerEntry.requiresPremiumForMessaging {
@@ -864,7 +866,7 @@ private func mappedUpdateEntries(context: AccountContext, nodeInteraction: ChatL
                         } else {
                             if filter.contains(.onlyWriteable) {
                                 if let peer = peer.peers[peer.peerId] {
-                                    if !canSendMessagesToPeer(peer._asPeer()) {
+                                    if !canSendMessagesToPeer(peer) {
                                         enabled = false
                                     }
                                     if peerEntry.requiresPremiumForMessaging {
@@ -1239,7 +1241,7 @@ public final class ChatListNode: ListViewImpl {
                 case .Header, .Hole:
                     return nil
                 case let .PeerId(value):
-                    return PeerId(value)
+                    return EnginePeer.Id(value)
                 case .ThreadId, .GroupId, .ContactId, .ArchiveIntro, .EmptyIntro, .SectionHeader, .Notice, .additionalCategory, .TopPeer:
                     return nil
                 }
@@ -1797,6 +1799,17 @@ public final class ChatListNode: ListViewImpl {
                 let _ = self.context.engine.privacy.terminateAnotherSession(id: newSessionReview.id).startStandalone()
                 #endif
             }
+        }, performBotConnectionReviewAction: { [weak self] newBotConnectionReview, isPositive in
+            guard let self else {
+                return
+            }
+            
+            if isPositive {
+                let _ = self.context.engine.accountData.confirmBotConnectionReview(botId: newBotConnectionReview.botId).startStandalone()
+            } else {
+                let _ = removeNewBotConnectionReviews(postbox: self.context.account.postbox, botIds: [newBotConnectionReview.botId]).startStandalone()
+                let _ = self.context.engine.accountData.setAccountConnectedBot(bot: nil).startStandalone()
+            }
         }, openChatFolderUpdates: { [weak self] in
             guard let self else {
                 return
@@ -1884,18 +1897,22 @@ public final class ChatListNode: ListViewImpl {
         
         let savedMessagesPeer: Signal<EnginePeer?, NoError>
         if case let .peers(filter, _, _, _, _, _, _) = mode, filter.contains(.onlyWriteable), case .chatList = location, self.chatListFilter == nil {
-            savedMessagesPeer = context.account.postbox.loadedPeerWithId(context.account.peerId)
-            |> map(Optional.init)
-            |> map { peer in
-                return peer.flatMap(EnginePeer.init)
+            savedMessagesPeer = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
+            |> mapToSignal { peer -> Signal<EnginePeer, NoError> in
+                if let peer {
+                    return .single(peer)
+                } else {
+                    return .never()
+                }
             }
+            |> map(Optional.init)
         } else {
             savedMessagesPeer = .single(nil)
         }
         
-        let hideArchivedFolderByDefault = context.account.postbox.preferencesView(keys: [ApplicationSpecificPreferencesKeys.chatArchiveSettings])
+        let hideArchivedFolderByDefault = context.engine.data.subscribe(TelegramEngine.EngineData.Item.Configuration.ApplicationSpecificPreference(key: ApplicationSpecificPreferencesKeys.chatArchiveSettings))
         |> map { view -> Bool in
-            let settings: ChatArchiveSettings = view.values[ApplicationSpecificPreferencesKeys.chatArchiveSettings]?.get(ChatArchiveSettings.self) ?? .default
+            let settings: ChatArchiveSettings = view?.get(ChatArchiveSettings.self) ?? .default
             return settings.isHiddenByDefault
         }
         |> distinctUntilChanged
@@ -2222,7 +2239,7 @@ public final class ChatListNode: ListViewImpl {
                         
                         if filter.contains(.onlyWriteable) && filter.contains(.excludeDisabled) {
                             if let peer = peer.peers[peer.peerId] {
-                                if !canSendMessagesToPeer(peer._asPeer()) {
+                                if !canSendMessagesToPeer(peer) {
                                     return false
                                 }
                             } else {
@@ -2584,7 +2601,7 @@ public final class ChatListNode: ListViewImpl {
             }
             let presentationData = state.presentationData
             
-            return preparedChatListNodeViewTransition(from: previousView, to: processedView, reason: reason, previewing: previewing, disableAnimations: disableAnimations, account: context.account, scrollPosition: updatedScrollPosition, searchMode: searchMode, forceAllUpdated: forceAllUpdated)
+            return preparedChatListNodeViewTransition(from: previousView, to: processedView, reason: reason, previewing: previewing, disableAnimations: disableAnimations, scrollPosition: updatedScrollPosition, searchMode: searchMode, forceAllUpdated: forceAllUpdated)
             |> map({ mappedChatListNodeViewListTransition(context: context, nodeInteraction: nodeInteraction, location: location, isPremium: accountIsPremium, filterData: filterData, chatListFilters: chatListFilters, mode: mode, isPeerEnabled: isPeerEnabled, presentationData: presentationData, transition: $0) })
             |> runOn(prepareOnMainQueue ? Queue.mainQueue() : viewProcessingQueue)
         }
@@ -2614,7 +2631,7 @@ public final class ChatListNode: ListViewImpl {
                     strongSelf.enqueueHistoryPreloadUpdate()
                 }
                 
-                var refreshStoryPeerIds: [PeerId] = []
+                var refreshStoryPeerIds: [EnginePeer.Id] = []
                 var isHiddenItemVisible = false
                 if let range = range.visibleRange {
                     let entryCount = chatListView.filteredEntries.count
