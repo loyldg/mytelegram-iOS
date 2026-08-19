@@ -139,16 +139,27 @@ public final class LegacyJoinLinkPreviewController: ViewController {
     }
     
     private func join() {
-        self.disposable.set((self.context.engine.peers.joinChatInteractively(with: self.link) |> deliverOnMainQueue).start(next: { [weak self] peer in
+        self.disposable.set((self.context.engine.peers.joinChatInteractively(with: self.link) |> deliverOnMainQueue).start(next: { [weak self] result in
             if let strongSelf = self {
-                if strongSelf.isRequest {
-                    strongSelf.present(UndoOverlayController(presentationData: strongSelf.presentationData, content: .inviteRequestSent(title: strongSelf.presentationData.strings.MemberRequests_RequestToJoinSent, text: strongSelf.isGroup ? strongSelf.presentationData.strings.MemberRequests_RequestToJoinSentDescriptionGroup : strongSelf.presentationData.strings.MemberRequests_RequestToJoinSentDescriptionChannel ), elevatedLayout: true, animateInAsReplacement: false, action: { _ in return false }), in: .window(.root))
-                } else {
-                    if let peer = peer {
-                        strongSelf.navigateToPeer(peer, nil)
+                switch result {
+                case let .joined(peer):
+                    if strongSelf.isRequest {
+                        strongSelf.present(UndoOverlayController(presentationData: strongSelf.presentationData, content: .inviteRequestSent(title: strongSelf.presentationData.strings.MemberRequests_RequestToJoinSent, text: strongSelf.isGroup ? strongSelf.presentationData.strings.MemberRequests_RequestToJoinSentDescriptionGroup : strongSelf.presentationData.strings.MemberRequests_RequestToJoinSentDescriptionChannel ), elevatedLayout: true, animateInAsReplacement: false, action: { _ in return false }), in: .window(.root))
+                    } else {
+                        if let peer {
+                            strongSelf.navigateToPeer(peer, nil)
+                        }
                     }
+                    strongSelf.dismiss()
+                case let .webView(webView):
+                    let chatTitle: String
+                    if case let .invite(invite)? = strongSelf.resolvedState {
+                        chatTitle = invite.title
+                    } else {
+                        chatTitle = ""
+                    }
+                    strongSelf.context.sharedContext.openJoinChatWebView(context: strongSelf.context, parentController: strongSelf, updatedPresentationData: nil, webView: webView, chatTitle: chatTitle)
                 }
-                strongSelf.dismiss()
             }
         }, error: { [weak self] error in
             if let strongSelf = self {
@@ -193,7 +204,7 @@ public func JoinLinkPreviewController(
 ) -> ViewController {
     if let data = context.currentAppConfiguration.with({ $0 }).data, data["ios_killswitch_legacy_join_link"] != nil {
         return LegacyJoinLinkPreviewController(context: context, link: link, navigateToPeer: navigateToPeer, parentNavigationController: parentNavigationController, resolvedState: resolvedState)
-    } else if case let .invite(invite) = resolvedState, !invite.flags.requestNeeded, !invite.flags.isBroadcast, !invite.flags.canRefulfillSubscription { 
+    } else if case let .invite(invite) = resolvedState, invite.subscriptionPricing == nil, invite.subscriptionFormId == nil, !invite.flags.canRefulfillSubscription {
         var verificationStatus: JoinSubjectScreenMode.Group.VerificationStatus?
         if invite.flags.isFake {
             verificationStatus = .fake
@@ -204,10 +215,11 @@ public func JoinLinkPreviewController(
         }
         return context.sharedContext.makeJoinSubjectScreen(context: context, mode: .group(JoinSubjectScreenMode.Group(
             link: link,
-            isGroup: !invite.flags.isChannel,
+            isGroup: !invite.flags.isBroadcast,
             isPublic: invite.flags.isPublic,
             isRequest: invite.flags.requestNeeded,
             verificationStatus: verificationStatus,
+            nameColor: invite.nameColor,
             image: invite.photoRepresentation,
             title: invite.title,
             about: invite.about,

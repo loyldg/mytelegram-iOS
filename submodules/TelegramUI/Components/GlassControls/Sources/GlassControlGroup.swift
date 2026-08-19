@@ -15,7 +15,7 @@ public final class GlassControlGroupComponent: Component {
             case icon(String)
             case text(String)
             case animation(String)
-            case customIcon(id: AnyHashable, component: AnyComponent<Empty>)
+            case customIcon(id: AnyHashable, component: AnyComponent<Empty>, insets: UIEdgeInsets)
             
             enum Id: Hashable {
                 case icon(String)
@@ -32,7 +32,7 @@ public final class GlassControlGroupComponent: Component {
                     return .text(text)
                 case let .animation(animation):
                     return .animation(animation)
-                case let .customIcon(id, _):
+                case let .customIcon(id, _, _):
                     return .customIcon(id)
                 }
             }
@@ -64,7 +64,7 @@ public final class GlassControlGroupComponent: Component {
 
     public enum Background: Equatable {
         case panel
-        case activeTint
+        case activeTint(inset: Bool)
         case color(UIColor)
     }
 
@@ -158,9 +158,13 @@ public final class GlassControlGroupComponent: Component {
             case .panel:
                 foregroundColor = component.theme.chat.inputPanel.panelControlColor
                 tintColor = .init(kind: component.preferClearGlass ? .clear : .panel)
-            case .activeTint:
+            case let .activeTint(inset):
                 foregroundColor = component.theme.list.itemCheckColors.foregroundColor
-                tintColor = .init(kind: component.preferClearGlass ? .clear : .panel, innerColor: component.theme.list.itemCheckColors.fillColor)
+                if inset {
+                    tintColor = .init(kind: component.preferClearGlass ? .clear : .panel, innerColor: component.theme.list.itemCheckColors.fillColor)
+                } else {
+                    tintColor = .init(kind: .custom(style: component.preferClearGlass ? .clear : .default, color: component.theme.list.itemCheckColors.fillColor))
+                }
             case let .color(color):
                 foregroundColor = .white
                 tintColor = .init(kind: .custom(style: component.preferClearGlass ? .clear : .default, color: color))
@@ -216,8 +220,10 @@ public final class GlassControlGroupComponent: Component {
                         size: CGSize(width: 32.0, height: 32.0),
                         playOnce: playOnce
                     ))
-                case let .customIcon(_, customIcon):
+                case let .customIcon(_, customIcon, insets):
                     content = customIcon
+                    itemInsets.left = insets.left
+                    itemInsets.right = insets.right
                 }
                 
                 var minItemWidth: CGFloat = availableSize.height
@@ -285,8 +291,9 @@ public final class GlassControlGroupComponent: Component {
             
             let size = CGSize(width: contentsWidth, height: availableSize.height)
             transition.setFrame(view: self.backgroundView, frame: CGRect(origin: CGPoint(), size: size))
-            isInteractive = true
-            self.backgroundView.update(size: size, cornerRadius: size.height * 0.5, isDark: component.theme.overallDarkAppearance, tintColor: tintColor, isInteractive: isInteractive, transition: transition)
+            
+            self.backgroundView.update(size: size, cornerRadius: size.height * 0.5, isDark: component.theme.overallDarkAppearance, tintColor: tintColor, isInteractive: true, transition: transition)
+            self.backgroundView.isUserInteractionEnabled = isInteractive
             
             return size
         }

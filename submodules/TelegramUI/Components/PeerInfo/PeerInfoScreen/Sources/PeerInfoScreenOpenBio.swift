@@ -3,12 +3,14 @@ import UIKit
 import Display
 import AccountContext
 import SwiftSignalKit
-import Postbox
 import TelegramCore
 import AsyncDisplayKit
 import TelegramUIPreferences
 import ContextUI
 import TranslateUI
+import TextProcessingScreen
+import Pasteboard
+import ChatRichTextEditorComposer
 import UndoUI
 
 extension PeerInfoScreenNode {
@@ -54,7 +56,7 @@ extension PeerInfoScreenNode {
                 UIPasteboard.general.string = bioText
                 
                 let toastText: String
-                if let _ = self.data?.peer as? TelegramUser {
+                if case .user = self.data?.peer {
                     toastText = self.presentationData.strings.MyProfile_ToastBioCopied
                 } else {
                     toastText = self.presentationData.strings.ChannelProfile_ToastAboutCopied
@@ -88,7 +90,7 @@ extension PeerInfoScreenNode {
             }
             
             let copyText: String
-            if let _ = self.data?.peer as? TelegramUser {
+            if case .user = self.data?.peer {
                 copyText = self.presentationData.strings.MyProfile_BioActionCopy
             } else {
                 copyText = self.presentationData.strings.ChannelProfile_AboutActionCopy
@@ -106,16 +108,24 @@ extension PeerInfoScreenNode {
                         guard let self else {
                             return
                         }
-                        
-                        let controller = TranslateScreen(context: self.context, text: bioText, canCopy: true, fromLanguage: language, ignoredLanguages: translationSettings.ignoredLanguages)
-                        controller.pushController = { [weak self] c in
-                            (self?.controller?.navigationController as? NavigationController)?._keepModalDismissProgress = true
-                            self?.controller?.push(c)
+
+                        Task { @MainActor [weak self] in
+                            guard let self, let parentController = self.controller else {
+                                return
+                            }
+                            let presentationData = self.presentationData
+                            let controller = await TextProcessingScreen(
+                                context: self.context,
+                                mode: .translate(fromLanguage: language, applyResult: nil),
+                                inputText: .plain(text: bioText, entities: []),
+                                copyResult: { [weak parentController] text in
+                                    storeComposedRichMessageInPasteboard(text)
+                                    parentController?.present(UndoOverlayController(presentationData: presentationData, content: .copy(text: presentationData.strings.Conversation_TextCopied), elevatedLayout: true, animateInAsReplacement: false, action: { _ in return false }), in: .window(.root))
+                                },
+                                translateChat: nil
+                            )
+                            parentController.present(controller, in: .window(.root))
                         }
-                        controller.presentController = { [weak self] c in
-                            self?.controller?.present(c, in: .window(.root))
-                        }
-                        self.controller?.present(controller, in: .window(.root))
                     }
                 })))
             }

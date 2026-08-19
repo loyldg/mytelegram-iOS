@@ -277,8 +277,8 @@ private final class StarsTransactionSheetContent: CombinedComponent {
                 descriptionText = ""
                 count = CurrencyAmount(amount: subscription.pricing.amount, currency: .stars)
                 date = subscription.untilDate
-                if let creationDate = (subscription.peer._asPeer() as? TelegramChannel)?.creationDate, creationDate > 0 {
-                    additionalDate = creationDate
+                if case let .channel(channel) = subscription.peer, channel.creationDate > 0 {
+                    additionalDate = channel.creationDate
                 } else {
                     additionalDate = nil
                 }
@@ -366,7 +366,7 @@ private final class StarsTransactionSheetContent: CombinedComponent {
                         descriptionText = ""
                     case let .unique(gift):
                         titleText = gift.title
-                        descriptionText = "\(strings.Gift_Unique_Collectible) #\(presentationStringsFormattedNumber(gift.number, dateTimeFormat.groupingSeparator))"
+                        descriptionText = "\(strings.Gift_Unique_Collectible) #\(formatCollectibleNumber(gift.number, dateTimeFormat: dateTimeFormat))"
                     }
                     count = transaction.count
                     transactionId = transaction.id
@@ -881,7 +881,7 @@ private final class StarsTransactionSheetContent: CombinedComponent {
             } else if case .ton = count.currency {
                 amountStarIconName = "Ads/TonBig"
                 amountStarTintColor = countColor
-                amountStarMaxSize = CGSize(width: 13.0, height: 13.0)
+                amountStarMaxSize = CGSize(width: 14.0, height: 14.0)
                 amountOffset.y += 4.0 - UIScreenPixel
             } else {
                 amountStarIconName = "Premium/Stars/StarMedium"
@@ -913,7 +913,9 @@ private final class StarsTransactionSheetContent: CombinedComponent {
                 ))
             } else if case .unique = giftAnimationSubject {
                 let reason: String
-                if count.amount < StarsAmount.zero, case let .transaction(transaction, _) = subject {
+                if case let .transaction(transaction, _) = subject, transaction.flags.contains(.isStarGiftOffer) {
+                    reason = strings.Gift_Offer_Title
+                } else if count.amount < StarsAmount.zero, case let .transaction(transaction, _) = subject {
                     if transaction.flags.contains(.isStarGiftResale) {
                         reason = strings.Stars_Transaction_GiftPurchase
                     } else {
@@ -1955,7 +1957,7 @@ public class StarsTransactionScreen: ViewControllerComponentContainer {
                     return
                 }
                 if isProfile {
-                    if let controller = context.sharedContext.makePeerInfoController(context: context, updatedPresentationData: nil, peer: peer._asPeer(), mode: .generic, avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
+                    if let controller = context.sharedContext.makePeerInfoController(context: context, updatedPresentationData: nil, peer: peer, mode: .generic, avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
                         navigationController.pushViewController(controller)
                     }
                 } else {

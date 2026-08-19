@@ -13,7 +13,6 @@ swift_library(
         "//submodules/SSignalKit/SwiftSignalKit",
         "//submodules/Display",
         "//submodules/TelegramCore",
-        "//submodules/Postbox",
         "//submodules/TelegramPresentationData",
         "//submodules/ProgressNavigationButtonNode",
         "//submodules/AccountContext",
@@ -39,6 +38,7 @@ swift_library(
         "//submodules/ComponentFlow",
         "//submodules/Components/ComponentDisplayAdapters",
         "//submodules/TelegramUI/Components/EdgeEffect",
+        "//submodules/UndoUI",
     ],
     visibility = [
         "//visibility:public",

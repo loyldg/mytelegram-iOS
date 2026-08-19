@@ -121,23 +121,32 @@ func _internal_updateChannelMemberBannedRights(account: Account, peerId: PeerId,
                                 }
                                 
                                 return updatedData
+                            } else if let cachedData = cachedData as? CachedCommunityData {
+                                var updatedData = cachedData
+                                if isKicked != wasKicked {
+                                    if let kickedCount = updatedData.kickedCount {
+                                        updatedData = updatedData.withUpdatedKickedCount(max(0, kickedCount + (isKicked ? 1 : -1)))
+                                    }
+                                }
+
+                                return updatedData
                             } else {
                                 return cachedData
                             }
                         })
-                        var peers: [PeerId: Peer] = [:]
+                        var peers: [EnginePeer.Id: EnginePeer] = [:]
                         var presences: [PeerId: PeerPresence] = [:]
-                        peers[memberPeer.id] = memberPeer
+                        peers[memberPeer.id] = EnginePeer(memberPeer)
                         if let presence = transaction.getPeerPresence(peerId: memberPeer.id) {
                             presences[memberPeer.id] = presence
                         }
                         if case let .member(_, _, _, maybeBanInfo, _, _) = updatedParticipant, let banInfo = maybeBanInfo {
                             if let peer = transaction.getPeer(banInfo.restrictedBy) {
-                                peers[peer.id] = peer
+                                peers[peer.id] = EnginePeer(peer)
                             }
                         }
                         
-                        return (currentParticipant, RenderedChannelParticipant(participant: updatedParticipant, peer: memberPeer, peers: peers, presences: presences), isMember)
+                        return (currentParticipant, RenderedChannelParticipant(participant: updatedParticipant, peer: EnginePeer(memberPeer), peers: peers, presences: presences), isMember)
                     }
                 }
             } else {
@@ -172,6 +181,10 @@ func _internal_updateDefaultChannelMemberBannedRights(account: Account, peerId: 
                         return updated
                     })
                 } else if let peer = peer as? TelegramChannel {
+                    updatePeersCustom(transaction: transaction, peers: [peer.withUpdatedDefaultBannedRights(rights)], update: { _, updated in
+                        return updated
+                    })
+                } else if let peer = peer as? TelegramCommunity {
                     updatePeersCustom(transaction: transaction, peers: [peer.withUpdatedDefaultBannedRights(rights)], update: { _, updated in
                         return updated
                     })

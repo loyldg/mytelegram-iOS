@@ -2,7 +2,6 @@ import Foundation
 import UIKit
 import Display
 import TelegramCore
-import Postbox
 import SwiftSignalKit
 import TelegramPresentationData
 import TelegramBaseController
@@ -11,7 +10,8 @@ import AlertUI
 import PresentationDataUtils
 import ChatPresentationInterfaceState
 import ChatNavigationButton
-import CounterControllerTitleView
+import ChatTitleView
+import ComponentFlow
 import AdminUserActionsSheet
 
 public final class ChatRecentActionsController: TelegramBaseController {
@@ -20,8 +20,8 @@ public final class ChatRecentActionsController: TelegramBaseController {
     }
     
     private let context: AccountContext
-    private let peer: Peer
-    private let initialAdminPeerId: PeerId?
+    private let peer: EnginePeer
+    private let initialAdminPeerId: EnginePeer.Id?
     let starsState: StarsRevenueStats?
     
     private var presentationData: PresentationData
@@ -34,12 +34,13 @@ public final class ChatRecentActionsController: TelegramBaseController {
     
     private var panelInteraction: ChatPanelInterfaceInteraction!
     
-    private let titleView: CounterControllerTitleView
+    private let titleView: ChatNavigationBarTitleView
     private var rightBarButton: ChatNavigationButton?
+    private var preferredGlassType: ChatPresentationInterfaceState.GlassType = .default
     
     private var adminsDisposable: Disposable?
     
-    public init(context: AccountContext, peer: Peer, adminPeerId: PeerId?, starsState: StarsRevenueStats?) {
+    public init(context: AccountContext, peer: EnginePeer, adminPeerId: EnginePeer.Id?, starsState: StarsRevenueStats?) {
         self.context = context
         self.peer = peer
         self.initialAdminPeerId = adminPeerId
@@ -47,9 +48,11 @@ public final class ChatRecentActionsController: TelegramBaseController {
         
         self.presentationData = context.sharedContext.currentPresentationData.with { $0 }
         
-        self.titleView = CounterControllerTitleView(theme: self.presentationData.theme)
+        self.titleView = ChatNavigationBarTitleView(frame: CGRect())
         
-        super.init(context: context, navigationBarPresentationData: NavigationBarPresentationData(presentationData: self.presentationData))
+        super.init(context: context, navigationBarPresentationData: NavigationBarPresentationData(presentationData: self.presentationData, hideBackground: false, hideBadge: false, style: .glass, glassStyle: .default))
+
+        self._hasGlassStyle = true
         
         self.automaticallyControlPresentationContextLayout = false
         
@@ -59,7 +62,7 @@ public final class ChatRecentActionsController: TelegramBaseController {
         }, setupEditMessage: { _, _ in
         }, beginMessageSelection: { _, _ in
         }, cancelMessageSelection: { _ in
-        }, deleteSelectedMessages: {
+        }, deleteSelectedMessages: { _ in
         }, reportSelectedMessages: {
         }, reportMessages: { _, _ in
         }, blockMessageAuthor: { _, _ in
@@ -140,7 +143,6 @@ public final class ChatRecentActionsController: TelegramBaseController {
         }, displaySlowmodeTooltip: { _, _ in
         }, displaySendMessageOptions: { _, _ in
         }, openScheduledMessages: {
-        }, openPeersNearby: {
         }, displaySearchResultsTooltip: { _, _ in
         }, unarchivePeer: {
         }, scrollToTop: {
@@ -182,6 +184,7 @@ public final class ChatRecentActionsController: TelegramBaseController {
         }, presentInputTextTranslation: { _, _ in
         }, sendEmoji: { _, _, _ in
         }, openAICompose: {
+        }, openExpandedInput: {
         }, openSetPeerAvatar: {
         }, updateHistoryFilter: { _ in
         }, updateChatLocationThread: { _, _ in
@@ -194,10 +197,10 @@ public final class ChatRecentActionsController: TelegramBaseController {
         
         self.navigationItem.titleView = self.titleView
         
-        let rightBarButton = ChatNavigationButton(action: .search(hasTags: false), buttonItem: UIBarButtonItem(image: PresentationResourcesRootController.navigationCompactSearchIcon(self.presentationData.theme), style: .plain, target: self, action: #selector(self.activateSearch)))
+        let rightBarButton = ChatNavigationButton(action: .search(hasTags: false), buttonItem: UIBarButtonItem(image: PresentationResourcesRootController.navigationSearchIcon(self.presentationData.theme), style: .plain, target: self, action: #selector(self.activateSearch)))
         self.rightBarButton = rightBarButton
         
-        self.titleView.title = CounterControllerTitle(title: EnginePeer(peer).compactDisplayTitle, counter: self.presentationData.strings.Channel_AdminLog_TitleAllEvents)
+        self.updateTitle()
         
         let chatTheme = self.context.account.postbox.peerView(id: peer.id)
         |> map { view -> ChatTheme? in
@@ -261,20 +264,26 @@ public final class ChatRecentActionsController: TelegramBaseController {
     }
     
     private func updateThemeAndStrings() {
-        self.titleView.theme = self.presentationData.theme
+        self.updatePreferredGlassType()
         self.updateTitle()
         
-        let rightButton = ChatNavigationButton(action: .search(hasTags: false), buttonItem: UIBarButtonItem(image: PresentationResourcesRootController.navigationCompactSearchIcon(self.presentationData.theme), style: .plain, target: self, action: #selector(self.activateSearch)))
+        let rightButton = ChatNavigationButton(action: .search(hasTags: false), buttonItem: UIBarButtonItem(image: PresentationResourcesRootController.navigationSearchIcon(self.presentationData.theme), style: .plain, target: self, action: #selector(self.activateSearch)))
+        self.rightBarButton = rightButton
         self.navigationItem.setRightBarButton(rightButton.buttonItem, animated: false)
         
         self.statusBar.statusBarStyle = self.presentationData.theme.rootController.statusBarStyle.style
-        self.navigationBar?.updatePresentationData(NavigationBarPresentationData(presentationData: self.presentationData), transition: .immediate)
+        self.updateNavigationBarPresentation()
+        if let searchNode = self.navigationBar?.contentNode as? ChatRecentActionsSearchNavigationContentNode {
+            searchNode.updateThemeAndStrings(theme: self.presentationData.theme, preferClearGlass: self.preferredGlassType == .clear, strings: self.presentationData.strings)
+        }
         
-        self.controllerNode.updatePresentationData(self.presentationData)
+        if self.isNodeLoaded {
+            self.controllerNode.updatePresentationData(self.presentationData)
+        }
     }
     
     override public func loadDisplayNode() {
-        self.displayNode = ChatRecentActionsControllerNode(context: self.context, controller: self, peer: self.peer, presentationData: self.presentationData, pushController: { [weak self] c in
+        self.displayNode = ChatRecentActionsControllerNode(context: self.context, controller: self, peer: self.peer._asPeer(), presentationData: self.presentationData, pushController: { [weak self] c in
             (self?.navigationController as? NavigationController)?.pushViewController(c)
         }, presentController: { [weak self] c, t, a in
             self?.present(c, in: t, with: a, blockInteraction: true)
@@ -287,12 +296,17 @@ public final class ChatRecentActionsController: TelegramBaseController {
             }
             self.navigationItem.setRightBarButton(isEmpty ? nil : rightBarButton.buttonItem, animated: true)
         }
+        self.controllerNode.contentStatsUpdated = { [weak self] in
+            self?.updatePreferredGlassType()
+        }
+        self.controllerNode.updatePreferredGlassType(self.preferredGlassType, transition: .immediate)
         if let adminPeerId = self.initialAdminPeerId {
             self.controllerNode.updateFilter(events: .all, adminPeerIds: [adminPeerId])
             self.updateTitle()
         }
         
         self.displayNodeDidLoad()
+        self.updatePreferredGlassType()
     }
     
     override public func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -308,7 +322,7 @@ public final class ChatRecentActionsController: TelegramBaseController {
     @objc private func activateSearch() {
         if let navigationBar = self.navigationBar {
             if !(navigationBar.contentNode is ChatRecentActionsSearchNavigationContentNode) {
-                let searchNavigationNode = ChatRecentActionsSearchNavigationContentNode(theme: self.presentationData.theme, strings: self.presentationData.strings, cancel: { [weak self] in
+                let searchNavigationNode = ChatRecentActionsSearchNavigationContentNode(theme: self.presentationData.theme, preferClearGlass: self.preferredGlassType == .clear, strings: self.presentationData.strings, cancel: { [weak self] in
                     self?.deactivateSearch()
                 })
             
@@ -332,7 +346,7 @@ public final class ChatRecentActionsController: TelegramBaseController {
     func openFilterSetup() {
         if self.adminsPromise == nil {
             self.adminsPromise = Promise()
-            let (disposable, _) = self.context.peerChannelMemberCategoriesContextsManager.admins(engine: self.context.engine, postbox: self.context.account.postbox, network: self.context.account.network, accountPeerId: self.context.account.peerId, peerId: self.peer.id) { membersState in
+            let (disposable, _) = self.context.peerChannelMemberCategoriesContextsManager.admins(engine: self.context.engine, accountPeerId: self.context.account.peerId, peerId: self.peer.id) { membersState in
                 if case .loading = membersState.loadingState, membersState.list.isEmpty {
                     self.adminsPromise?.set(.single(nil))
                 } else {
@@ -356,12 +370,12 @@ public final class ChatRecentActionsController: TelegramBaseController {
             var adminPeers: [EnginePeer] = []
             if let result {
                 for participant in result {
-                    adminPeers.append(EnginePeer(participant.peer))
+                    adminPeers.append(participant.peer)
                 }
             }
             let controller = RecentActionsSettingsSheet(
                 context: self.context,
-                peer: EnginePeer(self.peer),
+                peer: self.peer,
                 adminPeers: adminPeers,
                 initialValue: RecentActionsSettingsSheet.Value(
                     events: self.controllerNode.filter.events,
@@ -379,14 +393,54 @@ public final class ChatRecentActionsController: TelegramBaseController {
         })
     }
     
+    private func updateNavigationBarPresentation() {
+        let navigationBarTheme = NavigationBarTheme(rootControllerTheme: self.presentationData.theme, hideBackground: false, hideBadge: false, edgeEffectColor: .clear, style: .glass, glassStyle: self.preferredGlassType == .clear ? .clear : .default)
+        self.navigationBar?.updatePresentationData(NavigationBarPresentationData(theme: navigationBarTheme, strings: NavigationBarStrings(presentationStrings: self.presentationData.strings)), transition: .immediate)
+    }
+
+    private func updatePreferredGlassType() {
+        var preferredGlassType: ChatPresentationInterfaceState.GlassType = .default
+        if self.isNodeLoaded && self.controllerNode.backgroundContentIsSaturated {
+            preferredGlassType = .clear
+        }
+        if !self.presentationData.theme.overallDarkAppearance {
+            preferredGlassType = .default
+        }
+        if self.context.sharedContext.immediateExperimentalUISettings.forceClearGlass {
+            preferredGlassType = .clear
+        }
+
+        if self.preferredGlassType != preferredGlassType {
+            self.preferredGlassType = preferredGlassType
+            self.updateNavigationBarPresentation()
+            self.updateTitle()
+            if let searchNode = self.navigationBar?.contentNode as? ChatRecentActionsSearchNavigationContentNode {
+                searchNode.updateThemeAndStrings(theme: self.presentationData.theme, preferClearGlass: self.preferredGlassType == .clear, strings: self.presentationData.strings)
+            }
+            if self.isNodeLoaded {
+                self.controllerNode.updatePreferredGlassType(preferredGlassType, transition: .immediate)
+            }
+        }
+    }
+
     private func updateTitle() {
-        let title = EnginePeer(self.peer).compactDisplayTitle
+        let title = self.peer.compactDisplayTitle
         let subtitle: String
-        if self.controllerNode.filter.isEmpty {
+        if !self.isNodeLoaded || self.controllerNode.filter.isEmpty {
             subtitle = self.presentationData.strings.Channel_AdminLog_TitleAllEvents
         } else {
             subtitle = self.presentationData.strings.Channel_AdminLog_TitleSelectedEvents
         }
-        self.titleView.title = CounterControllerTitle(title: title, counter: subtitle)
+        let _ = self.titleView.update(
+            context: self.context,
+            theme: self.presentationData.theme,
+            preferClearGlass: self.preferredGlassType == .clear,
+            wallpaper: self.presentationData.chatWallpaper,
+            strings: self.presentationData.strings,
+            dateTimeFormat: self.presentationData.dateTimeFormat,
+            nameDisplayOrder: self.presentationData.nameDisplayOrder,
+            content: .custom(title: [ChatTitleContent.TitleTextItem(id: AnyHashable(0), content: .text(title))], subtitle: subtitle, isEnabled: false),
+            transition: .immediate
+        )
     }
 }

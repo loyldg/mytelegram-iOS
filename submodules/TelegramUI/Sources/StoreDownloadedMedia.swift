@@ -89,7 +89,7 @@ private final class DownloadedMediaStoreContext {
                             return false
                         }
                         peerTypeValue = .users
-                    case .secretChat:
+                    case .secretChat, .community:
                         return false
                     case .legacyGroup:
                         peerTypeValue = .groups
@@ -302,7 +302,7 @@ final class DownloadedMediaStoreManagerImpl: DownloadedMediaStoreManager {
                 return
             }
             for item in items {
-                for media in item.message.media {
+                for media in item.message.effectiveMedia {
                     if let id = media.id, id == item.mediaId {
                         self.store(.standalone(media: media), timestamp: item.message.timestamp, peerId: item.message.id.peerId)
                         break

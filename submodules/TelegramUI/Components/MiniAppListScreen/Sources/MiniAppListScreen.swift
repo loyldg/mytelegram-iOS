@@ -3,7 +3,6 @@ import UIKit
 import Display
 import AsyncDisplayKit
 import SwiftSignalKit
-import Postbox
 import TelegramCore
 import TelegramPresentationData
 import TelegramUIPreferences
@@ -227,7 +226,7 @@ final class MiniAppListScreenComponent: Component {
                 return
             }
             
-            if let peerInfoScreen = component.context.sharedContext.makePeerInfoController(context: component.context, updatedPresentationData: nil, peer: peer._asPeer(), mode: .generic, avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
+            if let peerInfoScreen = component.context.sharedContext.makePeerInfoController(context: component.context, updatedPresentationData: nil, peer: peer, mode: .generic, avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
                 peerInfoScreen.navigationPresentation = .modal
                 controller.push(peerInfoScreen)
             }
@@ -248,14 +247,13 @@ final class MiniAppListScreenComponent: Component {
             
             let titleText: String = strings.MiniAppList_Title
             
-            let closeTitle: String = strings.Common_Close
             let headerContent: ChatListHeaderComponent.Content? = ChatListHeaderComponent.Content(
                 title: titleText,
                 navigationBackTitle: nil,
                 titleComponent: nil,
                 chatListTitle: nil,
                 leftButton: isModal ? AnyComponentWithIdentity(id: "close", component: AnyComponent(NavigationButtonComponent(
-                    content: .text(title: closeTitle, isBold: false),
+                    content: .icon(imageName: "Navigation/Close"),
                     pressed: { [weak self] _ in
                         guard let self else {
                             return
@@ -462,7 +460,7 @@ final class MiniAppListScreenComponent: Component {
                         theme: searchBarTheme,
                         presentationTheme: environment.theme,
                         strings: environment.strings,
-                        fieldStyle: .modern,
+                        fieldStyle: .glass,
                         displayBackground: false
                     )
                     searchBarNode.placeholderString = NSAttributedString(string: environment.strings.Common_Search, font: Font.regular(17.0), textColor: searchBarTheme.placeholder)
@@ -504,7 +502,9 @@ final class MiniAppListScreenComponent: Component {
                         let timingFunction: String
                         switch curve {
                         case .easeInOut:
-                            timingFunction = CAMediaTimingFunctionName.easeOut.rawValue
+                            timingFunction = CAMediaTimingFunctionName.easeInEaseOut.rawValue
+                        case .easeIn:
+                            timingFunction = CAMediaTimingFunctionName.easeIn.rawValue
                         case .linear:
                             timingFunction = CAMediaTimingFunctionName.linear.rawValue
                         case .spring:

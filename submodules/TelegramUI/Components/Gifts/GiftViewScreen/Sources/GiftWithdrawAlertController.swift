@@ -4,10 +4,10 @@ import AsyncDisplayKit
 import Display
 import ComponentFlow
 import SwiftSignalKit
-import Postbox
 import TelegramCore
 import TelegramPresentationData
 import TelegramUIPreferences
+import TelegramStringFormatting
 import AccountContext
 import AppBundle
 import Markdown
@@ -68,7 +68,7 @@ public func giftWithdrawAlertController(
     content.append(AnyComponentWithIdentity(
         id: "text",
         component: AnyComponent(
-            AlertTextComponent(content: .plain(strings.Gift_Withdraw_Text("\(gift.title) #\(presentationStringsFormattedNumber(gift.number, presentationData.dateTimeFormat.groupingSeparator))").string))
+            AlertTextComponent(content: .plain(strings.Gift_Withdraw_Text("\(gift.title) #\(formatCollectibleNumber(gift.number, dateTimeFormat: presentationData.dateTimeFormat))").string))
         )
     ))
 

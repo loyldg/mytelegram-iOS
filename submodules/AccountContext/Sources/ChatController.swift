@@ -1,7 +1,6 @@
 import Foundation
 import UIKit
 import TelegramCore
-import Postbox
 import TextFormat
 import AsyncDisplayKit
 import Display
@@ -66,6 +65,9 @@ public final class ChatMessageItemAssociatedData: Equatable {
     public let showSensitiveContent: Bool
     public let isSuspiciousPeer: Bool
     public let showTextAsPlaceholder: Bool
+    public let accountCountry: String?
+    public let isParticipant: Bool
+    public let invitedOn: Int32?
     
     public init(
         automaticDownloadPeerType: MediaAutoDownloadPeerType,
@@ -102,7 +104,10 @@ public final class ChatMessageItemAssociatedData: Equatable {
         isInline: Bool = false,
         showSensitiveContent: Bool = false,
         isSuspiciousPeer: Bool = false,
-        showTextAsPlaceholder: Bool = false
+        showTextAsPlaceholder: Bool = false,
+        accountCountry: String? = nil,
+        isParticipant: Bool = false,
+        invitedOn: Int32? = nil
     ) {
         self.automaticDownloadPeerType = automaticDownloadPeerType
         self.automaticDownloadPeerId = automaticDownloadPeerId
@@ -139,6 +144,9 @@ public final class ChatMessageItemAssociatedData: Equatable {
         self.showSensitiveContent = showSensitiveContent
         self.isSuspiciousPeer = isSuspiciousPeer
         self.showTextAsPlaceholder = showTextAsPlaceholder
+        self.accountCountry = accountCountry
+        self.isParticipant = isParticipant
+        self.invitedOn = invitedOn
     }
     
     public static func == (lhs: ChatMessageItemAssociatedData, rhs: ChatMessageItemAssociatedData) -> Bool {
@@ -235,6 +243,15 @@ public final class ChatMessageItemAssociatedData: Equatable {
         if lhs.isSuspiciousPeer != rhs.isSuspiciousPeer {
             return false
         }
+        if lhs.accountCountry != rhs.accountCountry {
+            return false
+        }
+        if lhs.isParticipant != rhs.isParticipant {
+            return false
+        }
+        if lhs.invitedOn != rhs.invitedOn {
+            return false
+        }
         return true
     }
 }
@@ -246,6 +263,23 @@ public extension ChatMessageItemAssociatedData {
         } else {
             return false
         }
+    }
+
+    func isPollVotingRestricted(poll: TelegramMediaPoll, accountTestingEnvironment: Bool, currentTimestamp: Int32) -> Bool {
+        if !poll.countries.isEmpty, let accountCountry = self.accountCountry, !poll.countries.contains(accountCountry) {
+            return true
+        }
+
+        if poll.restrictToSubscribers {
+            let period: Int32 = accountTestingEnvironment ? 5 * 60 : 24 * 60 * 60
+            if !self.isParticipant {
+                return true
+            } else if let invitedOn = self.invitedOn, invitedOn + period > currentTimestamp {
+                return true
+            }
+        }
+
+        return false
     }
 }
 
@@ -377,44 +411,90 @@ public struct ChatInterfaceForwardOptionsState: Codable, Equatable {
 }
 
 public struct ChatTextInputState: Codable, Equatable {
-    public var inputText: NSAttributedString
-    public var selectionRange: Range<Int>
-    
+    /// The stored source of truth (Piece 5): the structural value model + a structural (tree-path) selection.
+    public var content: ChatInputContent
+    public var selection: ChatInputSelection
+
+    /// Derived transitional compat view — the chat `NSAttributedString` currency. Readers keep working
+    /// unchanged; the model is the storage. (Removed only once all readers move off it — Option B.)
+    public var inputText: NSAttributedString {
+        return attributedString(from: self.content)
+    }
+
+    /// Derived transitional flat selection (compat), **read-only** — nothing assigns it (selection writes go
+    /// through `init(inputText:selectionRange:)`). New/migrated code should prefer the structural `selection`
+    /// (and semantic mutation methods) over arithmetic on this flat range.
+    public var selectionRange: Range<Int> {
+        let r = self.selection.nsRange(in: self.content)
+        return r.location ..< (r.location + r.length)
+    }
+
+    /// Whether the composer is empty. Cheap structural check on the stored model — prefer this over
+    /// `inputText.string.isEmpty` / `inputText.length == 0`, which now allocate via the derived `inputText`.
+    public var isEmpty: Bool {
+        return self.content.isEmpty
+    }
+
     public static func ==(lhs: ChatTextInputState, rhs: ChatTextInputState) -> Bool {
-        return lhs.inputText.isEqual(to: rhs.inputText) && lhs.selectionRange == rhs.selectionRange
+        // `content` is a value type whose `==` compares custom emoji by `fileId` + `enableAnimation` (the Piece 3
+        // semantics, now intrinsic to the stored model), so this is plain value equality — no reference caveat.
+        return lhs.content == rhs.content && lhs.selection == rhs.selection
     }
-    
+
     public init() {
-        self.inputText = NSAttributedString()
-        self.selectionRange = 0 ..< 0
+        self.content = ChatInputContent()
+        self.selection = ChatInputSelection(nsRange: NSRange(location: 0, length: 0), in: self.content)
     }
-    
+
     public init(inputText: NSAttributedString, selectionRange: Range<Int>) {
-        self.inputText = inputText
-        self.selectionRange = selectionRange
+        self.content = chatInputContent(from: inputText)
+        self.selection = ChatInputSelection(nsRange: NSRange(location: selectionRange.lowerBound, length: selectionRange.upperBound - selectionRange.lowerBound), in: self.content)
     }
-    
+
     public init(inputText: NSAttributedString) {
-        self.inputText = inputText
-        let length = inputText.length
-        self.selectionRange = length ..< length
+        self.content = chatInputContent(from: inputText)
+        self.selection = ChatInputSelection(nsRange: NSRange(location: self.content.length, length: 0), in: self.content)
+    }
+
+    /// Build directly from a structural `ChatInputContent` (the model storage), applying a flat selection
+    /// range against it. Mirrors `init(inputText:selectionRange:)`, but skips the `NSAttributedString`
+    /// round-trip — used by the draft-restore `.instantPage` path, where the content comes straight from
+    /// `chatInputContent(fromInstantPage:)` and would lose structure if flattened to text first.
+    public init(content: ChatInputContent, selectionRange: Range<Int>) {
+        self.content = content
+        self.selection = ChatInputSelection(nsRange: NSRange(location: selectionRange.lowerBound, length: selectionRange.upperBound - selectionRange.lowerBound), in: self.content)
     }
 
     public init(from decoder: Decoder) throws {
+        // Prefer the structural model persisted under "cm" (the form written since 2026-06-19); fall back to the
+        // legacy `ChatTextInputStateText` under "at" so existing drafts (no "cm") still decode unchanged. The flat
+        // selection ints (`as0`/`as1`) are persisted by both forms and applied against the resolved `content` here,
+        // so the caret is preserved in both branches.
         let container = try decoder.container(keyedBy: StringCodingKey.self)
-        self.inputText = ((try? container.decode(ChatTextInputStateText.self, forKey: "at")) ?? ChatTextInputStateText()).attributedText()
+        if let content = try? container.decode(ChatInputContent.self, forKey: "cm") {
+            self.content = content
+        } else {
+            let attributedText = ((try? container.decode(ChatTextInputStateText.self, forKey: "at")) ?? ChatTextInputStateText()).attributedText()
+            self.content = chatInputContent(from: attributedText)
+        }
         let rangeFrom = (try? container.decode(Int32.self, forKey: "as0")) ?? 0
         let rangeTo = (try? container.decode(Int32.self, forKey: "as1")) ?? 0
+        let flatRange: NSRange
         if rangeFrom <= rangeTo {
-            self.selectionRange = Int(rangeFrom) ..< Int(rangeTo)
+            flatRange = NSRange(location: Int(rangeFrom), length: Int(rangeTo - rangeFrom))
         } else {
-            let length = self.inputText.length
-            self.selectionRange = length ..< length
+            flatRange = NSRange(location: self.content.length, length: 0)
         }
+        self.selection = ChatInputSelection(nsRange: flatRange, in: self.content)
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: StringCodingKey.self)
+
+        // Store the structural model directly under "cm" — this is the preferred persisted form (it keeps the
+        // structure the flat `ChatTextInputStateText` round-trip would fragment, e.g. a multi-line quote). The
+        // legacy `"at"`/`"as0"`/`"as1"` keys below are kept as a back-compat mirror so any old reader still works.
+        try container.encode(self.content, forKey: "cm")
 
         try container.encode(ChatTextInputStateText(attributedText: self.inputText), forKey: "at")
         try container.encode(Int32(self.selectionRange.lowerBound), forKey: "as0")
@@ -799,7 +879,7 @@ public enum ChatControllerSubject: Equatable {
         }
     }
     
-    case tag(MessageTags)
+    case tag(EngineMessage.Tags)
     case message(id: MessageSubject, highlight: MessageHighlight?, timecode: Double?, setupReply: Bool)
     case scheduledMessages
     case pinnedMessages(id: EngineMessage.Id?)
@@ -985,7 +1065,7 @@ public enum PeerInfoAvatarUploadStatus {
 }
 
 public protocol PeerInfoScreen: ViewController {
-    var peerId: PeerId { get }
+    var peerId: EnginePeer.Id { get }
     var privacySettings: Promise<AccountPrivacySettings?> { get }
     var twoStepAuthData: Promise<TwoStepAuthData?> { get }
     var notificationExceptions: Promise<NotificationExceptionsList?> { get }
@@ -1003,7 +1083,7 @@ public protocol PeerInfoScreen: ViewController {
     func updateProfileVideo(_ image: UIImage, video: Any?, values: Any?, markup: UploadPeerPhotoMarkup?)
 }
 
-public extension Peer {
+public extension EngineRawPeer {
     func canSetupAutoremoveTimeout(accountPeerId: EnginePeer.Id) -> Bool {
         if let _ = self as? TelegramSecretChat {
             return false
@@ -1099,12 +1179,14 @@ public protocol ChatController: ViewController {
     func activateSearch(domain: ChatSearchDomain, query: String)
     func activateInput(type: ChatControllerActivateInput)
     func beginClearHistory(type: InteractiveHistoryClearingType)
+    func presentReactionDeletionOptions(author: EnginePeer, messageId: EngineMessage.Id)
     
     func performScrollToTop() -> Bool
     func transferScrollingVelocity(_ velocity: CGFloat)
     func updateIsScrollingLockedAtTop(isScrollingLockedAtTop: Bool)
     
     func playShakeAnimation()
+    func playConfettiAnimation()
     
     func removeAd(opaqueId: Data)
     
@@ -1138,19 +1220,19 @@ public enum FileMediaResourceMediaStatus: Equatable {
 public protocol ChatMessageItemNodeProtocol: ListViewItemNode {
     func makeProgress() -> Promise<Bool>?
     func targetReactionView(value: MessageReaction.Reaction) -> UIView?
-    func targetForStoryTransition(id: StoryId) -> UIView?
+    func targetForStoryTransition(id: EngineStoryId) -> UIView?
     func contentFrame() -> CGRect
-    func matchesMessage(id: MessageId) -> Bool
+    func matchesMessage(id: EngineMessage.Id) -> Bool
     func cancelInsertionAnimations()
-    func messages() -> [Message]
+    func messages() -> [EngineRawMessage]
     func updateHiddenMedia()
 }
 
 public final class ChatControllerNavigationData: CustomViewControllerNavigationData {
-    public let peerId: PeerId
+    public let peerId: EnginePeer.Id
     public let threadId: Int64?
-    
-    public init(peerId: PeerId, threadId: Int64?) {
+
+    public init(peerId: EnginePeer.Id, threadId: Int64?) {
         self.peerId = peerId
         self.threadId = threadId
     }
@@ -1193,8 +1275,8 @@ public enum ChatHistoryListSource {
     }
     
     case `default`
-    case custom(messages: Signal<([Message], Int32, Bool), NoError>, messageId: MessageId?, quote: Quote?, isSavedMusic: Bool, canReorder: Bool, loadMore: (() -> Void)?)
-    case customView(historyView: Signal<(MessageHistoryView, ViewUpdateType), NoError>)
+    case custom(messages: Signal<([EngineRawMessage], Int32, Bool), NoError>, messageId: EngineMessage.Id?, quote: Quote?, isSavedMusic: Bool, canReorder: Bool, loadMore: (() -> Void)?)
+    case customView(historyView: Signal<(EngineRawMessageHistoryView, EngineViewUpdateType), NoError>)
 }
 
 public enum ChatQuickReplyShortcutType {
@@ -1211,7 +1293,7 @@ public enum ChatCustomContentsKind: Equatable {
 
 public protocol ChatCustomContentsProtocol: AnyObject {
     var kind: ChatCustomContentsKind { get }
-    var historyView: Signal<(MessageHistoryView, ViewUpdateType), NoError> { get }
+    var historyView: Signal<(EngineRawMessageHistoryView, EngineViewUpdateType), NoError> { get }
     var messageLimit: Int? { get }
     
     func enqueueMessages(messages: [EnqueueMessage])
@@ -1246,14 +1328,27 @@ public enum ChatHistoryNodeHistoryState: Equatable {
     case loaded(isEmpty: Bool, hasReachedLimits: Bool)
 }
 
-public protocol ChatHistoryListNode: ListView {
+public protocol ChatHistoryListNode: ASDisplayNode {
     var historyState: ValuePromise<ChatHistoryNodeHistoryState> { get }
-    
+
     func scrollToEndOfHistory()
     func updateLayout(transition: ContainedViewLayoutTransition, updateSizeAndInsets: ListViewUpdateSizeAndInsets)
-    func messageInCurrentHistoryView(_ id: MessageId) -> Message?
-    
+    func messageInCurrentHistoryView(_ id: EngineMessage.Id) -> EngineMessage?
+
     var contentPositionChanged: (ListViewVisibleContentOffset) -> Void { get set }
+
+    // Curated ListView surface reached via the ChatHistoryListNode protocol type
+    // (PeerInfoListPaneNode + ChatLoadingNode). Everything else moves to concrete-only forwarders.
+    var bounces: Bool { get set }
+    var scrollEnabled: Bool { get set }
+    var preloadPages: Bool { get set }
+    var defaultToSynchronousTransactionWhileScrolling: Bool { get set }
+    var insets: UIEdgeInsets { get }
+    func visibleContentOffset() -> ListViewVisibleContentOffset
+    func transferVelocity(_ velocity: CGFloat)
+    func forEachItemNode(_ f: (ASDisplayNode) -> Void)
+    func forEachVisibleItemNode(_ f: (ASDisplayNode) -> Void)
+    func forEachItemHeaderNode(_ f: (ListViewItemHeaderNode) -> Void)
 }
 
 public extension ChatFolderTitle {

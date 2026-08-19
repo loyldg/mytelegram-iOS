@@ -185,14 +185,17 @@ final class MessageHistoryTable: Table {
     
     private func processIndexOperationsCommitAccumulatedRemoveIndices(peerId: PeerId, accumulatedRemoveIndices: inout [MessageIndex], updatedCombinedState: inout CombinedPeerReadState?, invalidateReadState: inout Bool, unsentMessageOperations: inout [IntermediateMessageHistoryUnsentOperation], outputOperations: inout [MessageHistoryOperation], globalTagsOperations: inout [GlobalMessageHistoryTagsOperation], pendingActionsOperations: inout [PendingMessageActionsOperation], updatedMessageActionsSummaries: inout [PendingMessageActionsSummaryKey: Int32], updatedMessageTagSummaries: inout [MessageHistoryTagsSummaryKey: MessageHistoryTagNamespaceSummary], invalidateMessageTagSummaries: inout [InvalidatedMessageHistoryTagsSummaryEntryOperation], localTagsOperations: inout [IntermediateMessageHistoryLocalTagsOperation], timestampBasedMessageAttributesOperations: inout [TimestampBasedMessageAttributesOperation]) {
         if !accumulatedRemoveIndices.isEmpty {
-            let (combinedState, invalidate) = self.readStateTable.deleteMessages(peerId, indices: accumulatedRemoveIndices, incomingStatsInIndices: { peerId, namespace, indices in
-                return self.incomingMessageStatsInIndices(peerId, namespace: namespace, indices: indices)
-            })
-            if let combinedState = combinedState {
-                updatedCombinedState = combinedState
-            }
-            if invalidate {
-                invalidateReadState = true
+            let readStateRemoveIndices = accumulatedRemoveIndices.filter { self.seedConfiguration.chatMessagesNamespaces.contains($0.id.namespace) }
+            if !readStateRemoveIndices.isEmpty {
+                let (combinedState, invalidate) = self.readStateTable.deleteMessages(peerId, indices: readStateRemoveIndices, incomingStatsInIndices: { peerId, namespace, indices in
+                    return self.incomingMessageStatsInIndices(peerId, namespace: namespace, indices: indices)
+                })
+                if let combinedState = combinedState {
+                    updatedCombinedState = combinedState
+                }
+                if invalidate {
+                    invalidateReadState = true
+                }
             }
             
             let buckets = self.continuousIndexIntervalsForRemoving(accumulatedRemoveIndices)
@@ -344,7 +347,7 @@ final class MessageHistoryTable: Table {
                             self.timeBasedAttributesTable.set(tag: tag, id: message.id, timestamp: timestamp, operations: &timestampBasedMessageAttributesOperations)
                         }
                     }
-                    if !message.flags.intersection(.IsIncomingMask).isEmpty {
+                    if self.seedConfiguration.chatMessagesNamespaces.contains(message.id.namespace) && !message.flags.intersection(.IsIncomingMask).isEmpty {
                         accumulatedAddedIncomingMessageIndices.insert(message.index)
                     }
                 case let .InsertExistingMessage(storeMessage):
@@ -374,7 +377,7 @@ final class MessageHistoryTable: Table {
                             outputOperations.append(.UpdateGroupInfos(updatedGroupInfos))
                         }
                         
-                        if !message.flags.intersection(.IsIncomingMask).isEmpty {
+                        if self.seedConfiguration.chatMessagesNamespaces.contains(message.id.namespace) && !message.flags.intersection(.IsIncomingMask).isEmpty {
                             if index != message.index {
                                 accumulatedRemoveIndices.append(index)
                                 accumulatedAddedIncomingMessageIndices.insert(message.index)
@@ -1263,13 +1266,13 @@ final class MessageHistoryTable: Table {
             if let mediaId = media.id {
                 let mediaInsertResult = self.messageMediaTable.set(media, index: message.index, messageHistoryTable: self)
                 switch mediaInsertResult {
-                    case let .Embed(media):
-                        embeddedMedia.append(media)
-                    case .Reference:
-                        referencedMedia.append(mediaId)
-                        if media.isLikelyToBeUpdated() {
-                            updateExistingMedia[mediaId] = media
-                        }
+                case let .Embed(media):
+                    embeddedMedia.append(media)
+                case .Reference:
+                    referencedMedia.append(mediaId)
+                    if media.isLikelyToBeUpdated() {
+                        updateExistingMedia[mediaId] = media
+                    }
                 }
             } else {
                 embeddedMedia.append(media)
@@ -2759,12 +2762,6 @@ final class MessageHistoryTable: Table {
                 }
             }
             
-            /*#if DEBUG
-            for key in associatedStories.keys {
-                associatedStories[key] = CodableEntry(data: Data())
-            }
-            #endif*/
-            
             associatedMessageIds.append(contentsOf: attribute.associatedMessageIds)
             if addAssociatedMessages {
                 for messageId in attribute.associatedMessageIds {
@@ -2784,6 +2781,16 @@ final class MessageHistoryTable: Table {
         
         if let threadId = message.threadId, let possibleThreadPeer = peerTable.get(PeerId(threadId)) {
             peers[possibleThreadPeer.id] = possibleThreadPeer
+        }
+        
+        for media in parsedMedia {
+            for id in media.mediaIds {
+                if associatedMedia[id] == nil {
+                    if let media = self.getMedia(id) {
+                        associatedMedia[id] = media
+                    }
+                }
+            }
         }
         
         return Message(stableId: message.stableId, stableVersion: message.stableVersion, id: message.id, globallyUniqueId: message.globallyUniqueId, groupingKey: message.groupingKey, groupInfo: message.groupInfo, threadId: message.threadId, timestamp: message.timestamp, flags: message.flags, tags: message.tags, globalTags: message.globalTags, localTags: message.localTags, customTags: message.customTags, forwardInfo: forwardInfo, author: author, text: message.text, attributes: parsedAttributes, media: parsedMedia, peers: peers, associatedMessages: associatedMessages, associatedMessageIds: associatedMessageIds, associatedMedia: associatedMedia, associatedThreadInfo: associatedThreadInfo, associatedStories: associatedStories)

@@ -28,7 +28,6 @@ import InstantPageUI
 import ChatInterfaceState
 import UndoUI
 import TextFormat
-import Postbox
 import TelegramAnimatedStickerNode
 import AnimationCache
 import MultiAnimationRenderer
@@ -36,6 +35,7 @@ import PremiumUI
 import AvatarNode
 import StoryContainerScreen
 import ChatListSearchFiltersContainerNode
+import SectionTitleContextItem
 import EdgeEffect
 import ComponentFlow
 import ComponentDisplayAdapters
@@ -54,7 +54,7 @@ final class ChatListSearchInteraction {
     let openDisabledPeer: (EnginePeer, Int64?, ChatListDisabledPeerReason) -> Void
     let openMessage: (EnginePeer, Int64?, EngineMessage.Id, Bool) -> Void
     let openUrl: (String) -> Void
-    let clearRecentSearch: () -> Void
+    let clearRecentSearch: (ASDisplayNode) -> Void
     let addContact: (String) -> Void
     let toggleMessageSelection: (EngineMessage.Id, Bool) -> Void
     let messageContextAction: ((EngineMessage, ASDisplayNode?, CGRect?, UIGestureRecognizer?, ChatListSearchPaneKey, (id: String, size: Int64, isFirstInList: Bool)?) -> Void)
@@ -63,12 +63,12 @@ final class ChatListSearchInteraction {
     let present: (ViewController, Any?) -> Void
     let dismissInput: () -> Void
     let getSelectedMessageIds: () -> Set<EngineMessage.Id>?
-    let openStories: ((PeerId, ASDisplayNode) -> Void)?
+    let openStories: ((EnginePeer.Id, ASDisplayNode) -> Void)?
     let switchToFilter: (ChatListSearchPaneKey) -> Void
     let dismissSearch: () -> Void
     let openAdInfo: (ASDisplayNode, AdPeer) -> Void
     
-    init(openPeer: @escaping (EnginePeer, EnginePeer?, Int64?, Bool) -> Void, openDisabledPeer: @escaping (EnginePeer, Int64?, ChatListDisabledPeerReason) -> Void, openMessage: @escaping (EnginePeer, Int64?, EngineMessage.Id, Bool) -> Void, openUrl: @escaping (String) -> Void, clearRecentSearch: @escaping () -> Void, addContact: @escaping (String) -> Void, toggleMessageSelection: @escaping (EngineMessage.Id, Bool) -> Void, messageContextAction: @escaping ((EngineMessage, ASDisplayNode?, CGRect?, UIGestureRecognizer?, ChatListSearchPaneKey, (id: String, size: Int64, isFirstInList: Bool)?) -> Void), mediaMessageContextAction: @escaping ((EngineMessage, ASDisplayNode?, CGRect?, UIGestureRecognizer?) -> Void), peerContextAction: ((EnginePeer, ChatListSearchContextActionSource, ASDisplayNode, ContextGesture?, CGPoint?) -> Void)?, present: @escaping (ViewController, Any?) -> Void, dismissInput: @escaping () -> Void, getSelectedMessageIds: @escaping () -> Set<EngineMessage.Id>?, openStories: ((PeerId, ASDisplayNode) -> Void)?, switchToFilter: @escaping (ChatListSearchPaneKey) -> Void, dismissSearch: @escaping () -> Void, openAdInfo: @escaping (ASDisplayNode, AdPeer) -> Void) {
+    init(openPeer: @escaping (EnginePeer, EnginePeer?, Int64?, Bool) -> Void, openDisabledPeer: @escaping (EnginePeer, Int64?, ChatListDisabledPeerReason) -> Void, openMessage: @escaping (EnginePeer, Int64?, EngineMessage.Id, Bool) -> Void, openUrl: @escaping (String) -> Void, clearRecentSearch: @escaping (ASDisplayNode) -> Void, addContact: @escaping (String) -> Void, toggleMessageSelection: @escaping (EngineMessage.Id, Bool) -> Void, messageContextAction: @escaping ((EngineMessage, ASDisplayNode?, CGRect?, UIGestureRecognizer?, ChatListSearchPaneKey, (id: String, size: Int64, isFirstInList: Bool)?) -> Void), mediaMessageContextAction: @escaping ((EngineMessage, ASDisplayNode?, CGRect?, UIGestureRecognizer?) -> Void), peerContextAction: ((EnginePeer, ChatListSearchContextActionSource, ASDisplayNode, ContextGesture?, CGPoint?) -> Void)?, present: @escaping (ViewController, Any?) -> Void, dismissInput: @escaping () -> Void, getSelectedMessageIds: @escaping () -> Set<EngineMessage.Id>?, openStories: ((EnginePeer.Id, ASDisplayNode) -> Void)?, switchToFilter: @escaping (ChatListSearchPaneKey) -> Void, dismissSearch: @escaping () -> Void, openAdInfo: @escaping (ASDisplayNode, AdPeer) -> Void) {
         self.openPeer = openPeer
         self.openDisabledPeer = openDisabledPeer
         self.openMessage = openMessage
@@ -89,6 +89,20 @@ final class ChatListSearchInteraction {
     }
 }
 
+private final class ChatListSearchClearRecentReferenceContentSource: ContextReferenceContentSource {
+    private let sourceNode: ASDisplayNode
+
+    let keepInPlace: Bool = true
+
+    init(sourceNode: ASDisplayNode) {
+        self.sourceNode = sourceNode
+    }
+
+    func transitionInfo() -> ContextControllerReferenceViewInfo? {
+        return ContextControllerReferenceViewInfo(referenceView: self.sourceNode.view, contentAreaInScreenSpace: UIScreen.main.bounds, actionsPosition: .bottom)
+    }
+}
+
 private struct ChatListSearchContainerNodeSearchState: Equatable {
     var selectedMessageIds: Set<EngineMessage.Id>?
     
@@ -101,7 +115,9 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
     private let context: AccountContext
     private let peersFilter: ChatListNodePeersFilter
     private let requestPeerType: [ReplyMarkupButtonRequestPeerType]?
+    private let excludedPeerIds: Set<EnginePeer.Id>
     private var location: ChatListControllerLocation
+    private let communityId: EnginePeer.Id?
     private var folder: (Int32, String)?
     private let displaySearchFilters: Bool
     private let hasDownloads: Bool
@@ -109,7 +125,8 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
     private let openMessage: (EnginePeer, Int64?, EngineMessage.Id, Bool) -> Void
     private let navigationController: NavigationController?
     
-    var dismissSearch: (() -> Void)?
+    public var dismissSearch: (() -> Void)?
+    public var dismissSearchImmediately: (() -> Void)?
     var openAdInfo: ((ASDisplayNode, AdPeer) -> Void)?
     
     private let edgeEffectView: EdgeEffectView
@@ -166,16 +183,21 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
     private var recentAppsDisposable: Disposable?
     private var refreshedGlobalPostSearchStateDisposable: Disposable?
     
-    public init(context: AccountContext, animationCache: AnimationCache, animationRenderer: MultiAnimationRenderer, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)? = nil, filter: ChatListNodePeersFilter, requestPeerType: [ReplyMarkupButtonRequestPeerType]?, location: ChatListControllerLocation, folder: (Int32, String)?, displaySearchFilters: Bool, hasDownloads: Bool, initialFilter: ChatListSearchFilter = .chats, openPeer originalOpenPeer: @escaping (EnginePeer, EnginePeer?, Int64?, Bool) -> Void, openDisabledPeer: @escaping (EnginePeer, Int64?, ChatListDisabledPeerReason) -> Void, openRecentPeerOptions: @escaping (EnginePeer) -> Void, openMessage originalOpenMessage: @escaping (EnginePeer, Int64?, EngineMessage.Id, Bool) -> Void, addContact: ((String) -> Void)?, peerContextAction: ((EnginePeer, ChatListSearchContextActionSource, ASDisplayNode, ContextGesture?, CGPoint?) -> Void)?, present: @escaping (ViewController, Any?) -> Void, presentInGlobalOverlay: @escaping (ViewController, Any?) -> Void, navigationController: NavigationController?, parentController: @escaping () -> ViewController?) {
+    public init(context: AccountContext, animationCache: AnimationCache, animationRenderer: MultiAnimationRenderer, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)? = nil, filter: ChatListNodePeersFilter, requestPeerType: [ReplyMarkupButtonRequestPeerType]?, excludedPeerIds: Set<EnginePeer.Id> = [], location: ChatListControllerLocation, communityId: EnginePeer.Id? = nil, folder: (Int32, String)?, displaySearchFilters: Bool, hasDownloads: Bool, initialFilter: ChatListSearchFilter = .chats, openPeer originalOpenPeer: @escaping (EnginePeer, EnginePeer?, Int64?, Bool) -> Void, openDisabledPeer: @escaping (EnginePeer, Int64?, ChatListDisabledPeerReason) -> Void, openRecentPeerOptions: @escaping (EnginePeer) -> Void, openMessage originalOpenMessage: @escaping (EnginePeer, Int64?, EngineMessage.Id, Bool) -> Void, addContact: ((String) -> Void)?, peerContextAction: ((EnginePeer, ChatListSearchContextActionSource, ASDisplayNode, ContextGesture?, CGPoint?) -> Void)?, present: @escaping (ViewController, Any?) -> Void, presentInGlobalOverlay: @escaping (ViewController, Any?) -> Void, navigationController: NavigationController?, parentController: @escaping () -> ViewController?) {
         var initialFilter = initialFilter
         if case .chats = initialFilter, case .forum = location {
             initialFilter = .topics
         }
         
+        var folder = folder
+        folder = nil
+        
         self.context = context
         self.peersFilter = filter
         self.requestPeerType = requestPeerType
+        self.excludedPeerIds = excludedPeerIds
         self.location = location
+        self.communityId = communityId
         
         self.folder = folder
         
@@ -194,7 +216,7 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
         self.edgeEffectView = EdgeEffectView()
         
         self.filterContainerNode = ChatListSearchFiltersContainerNode()
-        self.paneContainerNode = ChatListSearchPaneContainerNode(context: context, animationCache: animationCache, animationRenderer: animationRenderer, updatedPresentationData: updatedPresentationData, peersFilter: self.peersFilter, requestPeerType: self.requestPeerType, location: location, searchQuery: self.searchQuery.get(), searchOptions: self.searchOptions.get(), navigationController: navigationController, parentController: parentController())
+        self.paneContainerNode = ChatListSearchPaneContainerNode(context: context, animationCache: animationCache, animationRenderer: animationRenderer, updatedPresentationData: updatedPresentationData, peersFilter: self.peersFilter, requestPeerType: self.requestPeerType, excludedPeerIds: self.excludedPeerIds, location: location, communityId: communityId, searchQuery: self.searchQuery.get(), searchOptions: self.searchOptions.get(), navigationController: navigationController, parentController: parentController())
         self.paneContainerNode.clipsToBounds = true
         
         super.init()
@@ -211,17 +233,17 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
         let interaction = ChatListSearchInteraction(openPeer: { peer, chatPeer, threadId, value in
             originalOpenPeer(peer, chatPeer, threadId, value)
             if peer.id.namespace != Namespaces.Peer.SecretChat {
-                addAppLogEvent(postbox: context.account.postbox, type: "search_global_open_peer", peerId: peer.id)
+                context.engine.accountData.addAppLogEvent(type: "search_global_open_peer")
             }
         }, openDisabledPeer: { peer, threadId, reason in
             openDisabledPeer(peer, threadId, reason)
         }, openMessage: { peer, threadId, messageId, deactivateOnAction in
             originalOpenMessage(peer, threadId, messageId, deactivateOnAction)
             if peer.id.namespace != Namespaces.Peer.SecretChat {
-                addAppLogEvent(postbox: context.account.postbox, type: "search_global_open_message", peerId: peer.id, data: .dictionary(["msg_id": .number(Double(messageId.id))]))
+                context.engine.accountData.addAppLogEvent(type: "search_global_open_message", data: .dictionary(["msg_id": .number(Double(messageId.id))]))
             }
         }, openUrl: { [weak self] url in
-            let _ = openUserGeneratedUrl(context: context, peerId: nil, url: url, concealed: false, present: { c in
+            let _ = context.sharedContext.openUserGeneratedUrl(context: context, peerId: nil, url: url, webpage: nil, concealed: false, forceConcealed: false, skipUrlAuth: false, skipConcealedAlert: false, forceDark: false, present: { c in
                 present(c, nil)
             }, openResolved: { [weak self] resolved in
                 context.sharedContext.openResolvedUrl(resolved, context: context, urlContext: .generic, navigationController: navigationController, forceExternal: false, forceUpdate: false, openPeer: { peerId, navigation in
@@ -237,31 +259,35 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
                 }, dismissInput: {
                     self?.dismissInput()
                 }, contentContext: nil, progress: nil, completion: nil)
-            })
-        }, clearRecentSearch: { [weak self] in
+            }, progress: nil, alertDisplayUpdated: nil, concealedAlertOption: nil)
+        }, clearRecentSearch: { [weak self] sourceNode in
             guard let strongSelf = self else {
                 return
             }
+            let emptyAction: ((ContextMenuActionItem.Action) -> Void)? = nil
             let presentationData = strongSelf.presentationData
-            let actionSheet = ActionSheetController(presentationData: presentationData)
-            actionSheet.setItemGroups([ActionSheetItemGroup(items: [
-                ActionSheetTextItem(title: presentationData.strings.ChatList_ClearSearchHistory),
-                ActionSheetButtonItem(title: presentationData.strings.WebSearch_RecentSectionClear, color: .destructive, action: { [weak self, weak actionSheet] in
-                    actionSheet?.dismissAnimated()
-                    
-                    guard let strongSelf = self else {
-                        return
+            let items: [ContextMenuItem] = [
+                .action(ContextMenuActionItem(text: presentationData.strings.ChatList_ClearSearchHistory, textFont: .small, icon: { _ in return nil }, action: emptyAction)),
+                .action(ContextMenuActionItem(text: presentationData.strings.ChatList_ClearSearchHistory_Confirm, textColor: .destructive, icon: { theme in
+                    return nil
+                }, action: { [weak self] c, _ in
+                    let clearImpl = { [weak self] in
+                        guard let strongSelf = self else {
+                            return
+                        }
+                        let _ = (strongSelf.context.engine.peers.clearRecentlySearchedPeers()
+                        |> deliverOnMainQueue).startStandalone()
                     }
-                    let _ = (strongSelf.context.engine.peers.clearRecentlySearchedPeers()
-                    |> deliverOnMainQueue).startStandalone()
-                })
-            ]), ActionSheetItemGroup(items: [
-                ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak actionSheet] in
-                    actionSheet?.dismissAnimated()
-                })
-            ])])
+                    if let c {
+                        c.dismiss(completion: clearImpl)
+                    } else {
+                        clearImpl()
+                    }
+                }))
+            ]
+            let controller = makeContextController(presentationData: presentationData, source: .reference(ChatListSearchClearRecentReferenceContentSource(sourceNode: sourceNode)), items: .single(ContextController.Items(content: .list(items))), gesture: nil)
             strongSelf.dismissInput()
-            strongSelf.present?(actionSheet, nil)
+            strongSelf.present?(controller, nil)
         }, addContact: { phoneNumber in
             addContact?(phoneNumber)
         }, toggleMessageSelection: { [weak self] messageId, selected in
@@ -436,16 +462,23 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
             suggestedPeers = .single([])
         }
         
-        let accountPeer = self.context.account.postbox.loadedPeerWithId(self.context.account.peerId)
+        let accountPeer = self.context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: self.context.account.peerId))
+        |> mapToSignal { peer -> Signal<EnginePeer, NoError> in
+            if let peer {
+                return .single(peer)
+            } else {
+                return .never()
+            }
+        }
         |> take(1)
-        
+
         self.suggestedFiltersDisposable.set((combineLatest(suggestedPeers, self.suggestedDates.get(), self.selectedFilterPromise.get(), self.searchQuery.get(), accountPeer)
         |> mapToSignal { peers, dates, selectedFilter, searchQuery, accountPeer -> Signal<([EnginePeer], [(Date?, Date, String?)], ChatListSearchFilterEntryId?, String?, EnginePeer?), NoError> in
             if searchQuery?.isEmpty ?? true {
-                return .single((peers, dates, selectedFilter?.id, searchQuery, EnginePeer(accountPeer)))
+                return .single((peers, dates, selectedFilter?.id, searchQuery, accountPeer))
             } else {
                 return (.complete() |> delay(0.25, queue: Queue.mainQueue()))
-                |> then(.single((peers, dates, selectedFilter?.id, searchQuery, EnginePeer(accountPeer))))
+                |> then(.single((peers, dates, selectedFilter?.id, searchQuery, accountPeer)))
             }
         } |> map { peers, dates, selectedFilter, searchQuery, accountPeer -> ([ChatListSearchFilter], Bool) in
             var suggestedFilters: [ChatListSearchFilter] = []
@@ -916,7 +949,7 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
                             }
                             var type: PeerType = .group
                             for message in messages {
-                                if let user = message.author?._asPeer() as? TelegramUser {
+                                if case let .user(user) = message.author {
                                     if user.botInfo != nil && !user.id.isVerificationCodes {
                                         type = .bot
                                     } else {
@@ -1055,7 +1088,7 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
         if paneKey == .downloads {
             let isCachedValue: Signal<Bool, NoError>
             if let downloadResource = downloadResource {
-                isCachedValue = self.context.account.postbox.mediaBox.resourceStatus(MediaResourceId(downloadResource.id), resourceSize: downloadResource.size)
+                isCachedValue = self.context.engine.resources.status(id: EngineMediaResource.Id(downloadResource.id), resourceSize: downloadResource.size)
                 |> map { status -> Bool in
                     switch status {
                     case .Local:
@@ -1103,7 +1136,7 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
                             f(.default)
                             return
                         }
-                        let _ = (strongSelf.context.account.postbox.mediaBox.removeCachedResources([MediaResourceId(downloadResource.id)], notify: true)
+                        let _ = (strongSelf.context.engine.resources.removeCachedResources(ids: [EngineMediaResource.Id(downloadResource.id)], notify: true)
                         |> deliverOnMainQueue).startStandalone(completed: {
                             f(.dismissWithoutContent)
                         })
@@ -1385,16 +1418,16 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
                                 return
                             }
                             
-                            var resourceIds = Set<MediaResourceId>()
+                            var resourceIds = Set<EngineMediaResource.Id>()
                             for message in messages {
-                                for media in message.media {
+                                for media in message.effectiveMedia {
                                     if let file = media as? TelegramMediaFile {
-                                        resourceIds.insert(file.resource.id)
+                                        resourceIds.insert(EngineMediaResource.Id(file.resource.id))
                                     }
                                 }
                             }
-                            
-                            let _ = (strongSelf.context.account.postbox.mediaBox.removeCachedResources(Array(resourceIds), force: true, notify: true)
+
+                            let _ = (strongSelf.context.engine.resources.removeCachedResources(ids: Array(resourceIds), force: true, notify: true)
                             |> deliverOnMainQueue).startStandalone(completed: {
                                 guard let strongSelf = self else {
                                     return
@@ -1657,7 +1690,7 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
                             if let strongSelf = self {
                                 let proceed: (ChatController) -> Void = { chatController in
                                     chatController.purposefulAction = { [weak self] in
-                                        self?.cancel?()
+                                        self?.dismissSearchImmediately?()
                                     }
                                     if let navigationController = strongSelf.navigationController {
                                         var viewControllers = navigationController.viewControllers

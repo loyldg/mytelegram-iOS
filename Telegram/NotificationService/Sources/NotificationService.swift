@@ -1286,9 +1286,9 @@ private final class NotificationServiceHandler {
                                 action = .pollStories(peerId: peerId, content: content, storyId: storyId, isReaction: isReaction)
                             } else {
                                 var reportDelivery = false
-                                if let reportDeliveryUntilDate = aps["report_delivery_until_date"] as? Int32 {
+                                if let reportDeliveryUntilDate = aps["report_delivery_until_date"] as? String, let reportDeliveryUntilDateValue = Int32(reportDeliveryUntilDate) {
                                     let currentTime = Int32(CFAbsoluteTimeGetCurrent() + kCFAbsoluteTimeIntervalSince1970)
-                                    if reportDeliveryUntilDate > currentTime {
+                                    if reportDeliveryUntilDateValue > currentTime {
                                         reportDelivery = true
                                     }
                                 }
@@ -2958,7 +2958,7 @@ extension Customoji {
             if let cg = (image as UIImage).cgImage { return cg }
 
             var rendered: CGImage?
-            let work = { rendered = renderCGImage(image as! UIImage) }
+            let work = { rendered = renderCGImage(image) }
             if Thread.isMainThread {
                 work()
             } else {
