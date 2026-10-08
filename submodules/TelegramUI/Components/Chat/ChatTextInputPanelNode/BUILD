@@ -13,7 +13,6 @@ swift_library(
         "//submodules/Display",
         "//submodules/AsyncDisplayKit",
         "//submodules/SSignalKit/SwiftSignalKit",
-        "//submodules/Postbox",
         "//submodules/TelegramCore",
         "//submodules/TelegramPresentationData",
         "//submodules/TextFormat",
@@ -46,6 +45,7 @@ swift_library(
         "//submodules/TelegramUI/Components/ChatTextInputMediaRecordingButton",
         "//submodules/ChatContextQuery",
         "//submodules/TelegramUI/Components/Chat/ChatInputTextNode",
+        "//submodules/TelegramUI/Components/Chat/ChatRichTextEditorComposer",
         "//submodules/TelegramUI/Components/Chat/ChatInputPanelNode",
         "//submodules/TelegramNotices",
         "//submodules/AnimatedCountLabelNode",
@@ -67,6 +67,7 @@ swift_library(
         "//submodules/TelegramUI/Components/RasterizedCompositionComponent",
         "//submodules/TelegramUI/Components/StarsParticleEffect",
         "//submodules/TelegramUI/Components/Calls/VideoChatMicButtonComponent",
+        "//submodules/TelegramUI/Components/RichTextEditor:RichTextEditorUIKit",
     ],
     visibility = [
         "//visibility:public",

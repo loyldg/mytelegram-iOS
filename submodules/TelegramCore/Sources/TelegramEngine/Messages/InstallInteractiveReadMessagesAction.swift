@@ -12,6 +12,9 @@ func _internal_installInteractiveReadMessagesAction(postbox: Postbox, stateManag
         
         for message in messages {
             if case let .Id(id) = message.id {
+                if Namespaces.Message.allEphemeral.contains(id.namespace) {
+                    continue
+                }
                 if threadId == nil || message.threadId == threadId {
                 } else {
                     continue
@@ -100,11 +103,13 @@ func _internal_installInteractiveReadMessagesAction(postbox: Postbox, stateManag
         
         for (_, index) in readMessageIndexByNamespace {
             if let threadId {
+                var newCountIsZero = false
                 if var data = transaction.getMessageHistoryThreadInfo(peerId: peerId, threadId: threadId)?.data.get(MessageHistoryThreadData.self) {
                     if index.id.id >= data.maxIncomingReadId {
                         if let count = transaction.getThreadMessageCount(peerId: peerId, threadId: threadId, namespace: Namespaces.Message.Cloud, fromIdExclusive: data.maxIncomingReadId, toIndex: index) {
                             data.incomingUnreadCount = max(0, data.incomingUnreadCount - Int32(count))
                             data.maxIncomingReadId = index.id.id
+                            newCountIsZero = data.incomingUnreadCount == 0
                         }
                         
                         if let topMessageIndex = transaction.getMessageHistoryThreadTopMessage(peerId: peerId, threadId: threadId, namespaces: Set([Namespaces.Message.Cloud])) {
@@ -122,6 +127,23 @@ func _internal_installInteractiveReadMessagesAction(postbox: Postbox, stateManag
                         if let entry = StoredMessageHistoryThreadInfo(data) {
                             transaction.setMessageHistoryThreadInfo(peerId: peerId, threadId: threadId, info: entry)
                         }
+                    }
+                }
+                
+                if newCountIsZero, let peer = transaction.getPeer(peerId), peer.isForumOrMonoForum {
+                    var allTopicsAreRead = true
+                    for item in transaction.getMessageHistoryThreadIndex(peerId: peer.id, limit: 100) {
+                        guard let data = transaction.getMessageHistoryThreadInfo(peerId: index.id.peerId, threadId: item.threadId)?.data.get(MessageHistoryThreadData.self) else {
+                            continue
+                        }
+                        if data.incomingUnreadCount != 0 {
+                            allTopicsAreRead = false
+                            break
+                        }
+                    }
+                    
+                    if allTopicsAreRead {
+                        _internal_applyMaxReadIndexInteractively(transaction: transaction, stateManager: stateManager, index: index)
                     }
                 }
             } else {
@@ -172,6 +194,9 @@ private final class StoreOrUpdateMessageActionImpl: StoreOrUpdateMessageAction {
         
         for message in messages {
             guard let index = message.index else {
+                continue
+            }
+            if Namespaces.Message.allEphemeral.contains(index.id.namespace) {
                 continue
             }
             if !visibleRange.contains(index: index) {

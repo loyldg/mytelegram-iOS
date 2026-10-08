@@ -64,6 +64,8 @@ public enum EngineConfiguration {
         public let maxChannelRecommendationsCount: Int32
         public let maxConferenceParticipantCount: Int32
         public let maxBotsCreated: Int32
+        public let maxOwnedAITextStyles: Int32
+        public let maxMessageLength: Int32
         
         public static var defaultValue: UserLimits {
             return UserLimits(UserLimitsConfiguration.defaultValue)
@@ -97,7 +99,9 @@ public enum EngineConfiguration {
             maxGiveawayPeriodSeconds: Int32,
             maxChannelRecommendationsCount: Int32,
             maxConferenceParticipantCount: Int32,
-            maxBotsCreated: Int32
+            maxBotsCreated: Int32,
+            maxOwnedAITextStyles: Int32,
+            maxMessageLength: Int32
         ) {
             self.maxPinnedChatCount = maxPinnedChatCount
             self.maxPinnedSavedChatCount = maxPinnedSavedChatCount
@@ -127,6 +131,8 @@ public enum EngineConfiguration {
             self.maxChannelRecommendationsCount = maxChannelRecommendationsCount
             self.maxConferenceParticipantCount = maxConferenceParticipantCount
             self.maxBotsCreated = maxBotsCreated
+            self.maxOwnedAITextStyles = maxOwnedAITextStyles
+            self.maxMessageLength = maxMessageLength
         }
     }
 }
@@ -191,7 +197,9 @@ public extension EngineConfiguration.UserLimits {
             maxGiveawayPeriodSeconds: userLimitsConfiguration.maxGiveawayPeriodSeconds,
             maxChannelRecommendationsCount: userLimitsConfiguration.maxChannelRecommendationsCount,
             maxConferenceParticipantCount: userLimitsConfiguration.maxConferenceParticipantCount,
-            maxBotsCreated: userLimitsConfiguration.maxBotsCreated
+            maxBotsCreated: userLimitsConfiguration.maxBotsCreated,
+            maxOwnedAITextStyles: userLimitsConfiguration.maxOwnedAITextStyles,
+            maxMessageLength: userLimitsConfiguration.maxMessageLength
         )
     }
 }
@@ -576,6 +584,27 @@ public extension TelegramEngine.EngineData.Item {
             }
         }
         
+        public struct ContactsSettings: TelegramEngineDataItem, PostboxViewDataItem {
+            public typealias Result = TelegramCore.ContactsSettings
+
+            public init() {
+            }
+
+            var key: PostboxViewKey {
+                return .preferences(keys: Set([PreferencesKeys.contactsSettings]))
+            }
+
+            func extract(view: PostboxView) -> Result {
+                guard let view = view as? PreferencesView else {
+                    preconditionFailure()
+                }
+                guard let value = view.values[PreferencesKeys.contactsSettings]?.get(TelegramCore.ContactsSettings.self) else {
+                    return TelegramCore.ContactsSettings.defaultSettings
+                }
+                return value
+            }
+        }
+
         public struct EmojiGame: TelegramEngineDataItem, PostboxViewDataItem {
             public typealias Result = EmojiGameInfo
 

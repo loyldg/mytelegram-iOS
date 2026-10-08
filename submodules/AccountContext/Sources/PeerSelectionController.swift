@@ -2,7 +2,6 @@ import Foundation
 import Display
 import SwiftSignalKit
 import TelegramCore
-import Postbox
 import TelegramPresentationData
 import AnimationCache
 import MultiAnimationRenderer
@@ -35,6 +34,7 @@ public struct ChatListNodePeersFilter: OptionSet {
     public static let excludeGroups = ChatListNodePeersFilter(rawValue: 1 << 14)
     public static let excludeUsers = ChatListNodePeersFilter(rawValue: 1 << 15)
     public static let excludeBots = ChatListNodePeersFilter(rawValue: 1 << 16)
+    public static let includeCommunities = ChatListNodePeersFilter(rawValue: 1 << 17)
     
     public static let includeSelf = ChatListNodePeersFilter(rawValue: 1 << 7)
 }
@@ -45,11 +45,34 @@ public enum ChatListDisabledPeerReason {
     case premiumRequired
 }
 
+public final class CommunityPeerSelectionOptions {
+    public let filter: ChatListNodePeersFilter
+    public let requestPeerType: [ReplyMarkupButtonRequestPeerType]?
+    public let excludedPeerIds: Set<EnginePeer.Id>
+    public let selectPeer: (EnginePeer) -> Void
+    public let selectDisabledPeer: (EnginePeer, ChatListDisabledPeerReason) -> Void
+
+    public init(
+        filter: ChatListNodePeersFilter,
+        requestPeerType: [ReplyMarkupButtonRequestPeerType]?,
+        excludedPeerIds: Set<EnginePeer.Id>,
+        selectPeer: @escaping (EnginePeer) -> Void,
+        selectDisabledPeer: @escaping (EnginePeer, ChatListDisabledPeerReason) -> Void
+    ) {
+        self.filter = filter
+        self.requestPeerType = requestPeerType
+        self.excludedPeerIds = excludedPeerIds
+        self.selectPeer = selectPeer
+        self.selectDisabledPeer = selectDisabledPeer
+    }
+}
+
 public final class PeerSelectionControllerParams {
     public let context: AccountContext
     public let updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)?
     public let filter: ChatListNodePeersFilter
     public let requestPeerType: [ReplyMarkupButtonRequestPeerType]?
+    public let showPeerTypeRequirements: Bool
     public let forumPeerId: (id: EnginePeer.Id, isMonoforum: Bool)?
     public let hasFilters: Bool
     public let hasChatListSelector: Bool
@@ -68,12 +91,14 @@ public final class PeerSelectionControllerParams {
     public let immediatelySwitchToContacts: Bool
     public let immediatelyActivateMultipleSelection: Bool
     public let suggestedPeers: [EnginePeer]
+    public let excludedPeerIds: Set<EnginePeer.Id>
     
     public init(
         context: AccountContext,
         updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)? = nil,
         filter: ChatListNodePeersFilter = [.onlyWriteable],
         requestPeerType: [ReplyMarkupButtonRequestPeerType]? = nil,
+        showPeerTypeRequirements: Bool = true,
         forumPeerId: (id: EnginePeer.Id, isMonoforum: Bool)? = nil,
         hasFilters: Bool = false,
         hasChatListSelector: Bool = true,
@@ -91,12 +116,14 @@ public final class PeerSelectionControllerParams {
         hasCreation: Bool = false,
         immediatelySwitchToContacts: Bool = false,
         immediatelyActivateMultipleSelection: Bool = false,
-        suggestedPeers: [EnginePeer] = []
+        suggestedPeers: [EnginePeer] = [],
+        excludedPeerIds: Set<EnginePeer.Id> = []
     ) {
         self.context = context
         self.updatedPresentationData = updatedPresentationData
         self.filter = filter
         self.requestPeerType = requestPeerType
+        self.showPeerTypeRequirements = showPeerTypeRequirements
         self.forumPeerId = forumPeerId
         self.hasFilters = hasFilters
         self.hasChatListSelector = hasChatListSelector
@@ -115,6 +142,7 @@ public final class PeerSelectionControllerParams {
         self.immediatelySwitchToContacts = immediatelySwitchToContacts
         self.immediatelyActivateMultipleSelection = immediatelyActivateMultipleSelection
         self.suggestedPeers = suggestedPeers
+        self.excludedPeerIds = excludedPeerIds
     }
 }
 
@@ -123,39 +151,6 @@ public enum AttachmentTextInputPanelSendMode {
     case silent
     case schedule
     case whenOnline
-}
-
-public enum PeerSelectionControllerContext {
-    public final class Custom {
-        public let accountPeerId: EnginePeer.Id
-        public let postbox: Postbox
-        public let network: Network
-        public let animationCache: AnimationCache
-        public let animationRenderer: MultiAnimationRenderer
-        public let presentationData: PresentationData
-        public let updatedPresentationData: Signal<PresentationData, NoError>
-        
-        public init(
-            accountPeerId: EnginePeer.Id,
-            postbox: Postbox,
-            network: Network,
-            animationCache: AnimationCache,
-            animationRenderer: MultiAnimationRenderer,
-            presentationData: PresentationData,
-            updatedPresentationData: Signal<PresentationData, NoError>
-        ) {
-            self.accountPeerId = accountPeerId
-            self.postbox = postbox
-            self.network = network
-            self.animationCache = animationCache
-            self.animationRenderer = animationRenderer
-            self.presentationData = presentationData
-            self.updatedPresentationData = updatedPresentationData
-        }
-    }
-    
-    case account(AccountContext)
-    case custom(Custom)
 }
 
 public protocol PeerSelectionController: ViewController {

@@ -6,7 +6,6 @@ import ContextUI
 import AnimatedStickerNode
 import SwiftSignalKit
 import ContextUI
-import Postbox
 import TelegramCore
 import ReactionSelectionNode
 import ChatControllerInteraction
@@ -29,6 +28,64 @@ private func convertAnimatingSourceRect(_ rect: CGRect, fromView: UIView, toView
     } else {
         return fromView.layer.convert(rect, to: toView?.layer)
     }
+}
+
+private func pendingAdditiveSublayerTranslation(_ layer: CALayer) -> CGPoint {
+    guard let keys = layer.animationKeys() else { return .zero }
+    var result = CGPoint.zero
+    for key in keys {
+        guard let anim = layer.animation(forKey: key) as? CABasicAnimation,
+              anim.keyPath == "sublayerTransform",
+              anim.isAdditive,
+              let fromValue = anim.fromValue as? NSValue else {
+            continue
+        }
+        let t = fromValue.caTransform3DValue
+        result.x += t.m41
+        result.y += t.m42
+    }
+    return result
+}
+
+/// Convert a rect expressed in window coordinates to `toView`'s local coordinates,
+/// accounting for pending additive `sublayerTransform` animations on any ancestor
+/// of `toView`. Returns the position in `toView.bounds` that will render at
+/// `windowRect` visually at t=0 of the pending animations (once CA commits them).
+///
+/// Standard `toView.layer.convert(windowRect, from: nil)` reads model transforms
+/// only, so it yields the position that will render at `windowRect` *at t=end* of
+/// any pending additive animations (since additive animations don't change model
+/// values). For source-side morph calibration, where the snapshot was captured at
+/// pre-animation state, the t=0 position is what we want.
+///
+/// Walks the layer chain top-down from the root to `toView`. At each parent→child
+/// step it subtracts the parent's pending additive `sublayerTransform` translation
+/// *in the parent's own bounds coord space*, then does the standard one-step
+/// `convert(_:to:)` into the child. Applying the correction at the right level
+/// (rather than flat-summing the translations in the destination space) lets
+/// `CALayer.convert` propagate each correction through any remaining
+/// transforms — child `transform`, further ancestors' own model
+/// `sublayerTransform`, etc. — so the result is correct even when the chain
+/// contains non-translation transforms (rotations, scales).
+private func convertAnimatingSourceRectFromWindow(_ windowRect: CGRect, toView: UIView) -> CGRect {
+    var chain: [CALayer] = []
+    var layer: CALayer? = toView.layer
+    while let cur = layer {
+        chain.append(cur)
+        layer = cur.superlayer
+    }
+    chain.reverse()
+
+    var r = windowRect
+    for i in 0..<(chain.count - 1) {
+        let parent = chain[i]
+        let child = chain[i + 1]
+
+        let pending = pendingAdditiveSublayerTranslation(parent)
+        let adjustedR = r.offsetBy(dx: -pending.x, dy: -pending.y)
+        r = parent.convert(adjustedR, to: child)
+    }
+    return r
 }
 
 private final class OverlayTransitionContainerNode: ViewControllerTracingNode {
@@ -301,7 +358,12 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
         func updateLayout(size: CGSize) {
             self.clippingNode.frame = CGRect(origin: CGPoint(), size: size)
             
-            let absoluteRect = self.itemNode.view.convert(self.itemNode.view.bounds, to: self.itemNode.supernode?.supernode?.view)
+            // The chat history node composes (rather than is) its ListViewImpl, so item nodes sit one
+            // level deeper: itemNode -> listView (identity) -> ChatHistoryListNodeImpl wrapper (holds the
+            // 180° rotation) -> un-rotated container. Convert up to that container (3 hops) so the wrapper's
+            // rotation is applied as an intermediate transform, yielding the item's on-screen rect (matching
+            // the pre-composition 2-hop behavior). Stopping at the wrapper's own space would skip its rotation.
+            let absoluteRect = self.itemNode.view.convert(self.itemNode.view.bounds, to: self.itemNode.supernode?.supernode?.supernode?.view)
             self.containerNode.frame = absoluteRect
             if let globalPortalSourceView = self.globalPortalSourceView {
                 globalPortalSourceView.frame = CGRect(origin: CGPoint(), size: size)
@@ -388,9 +450,11 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
         func beginAnimation() {
             if let portalTargetView = self.portalTargetView {
                 portalTargetView.view.alpha = 0.0
-                portalTargetView.view.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.15)
+                portalTargetView.view.layer.allowsGroupOpacity = true
+                portalTargetView.view.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.14, delay: 0.14)
                 
-                self.portalSourceView.layer.animateAlpha(from: 0.01, to: 1.0, duration: 0.12)
+                self.portalSourceView.layer.allowsGroupOpacity = true
+                self.portalSourceView.layer.animateAlpha(from: 0.01, to: 1.0, duration: 0.1, delay: 0.12)
             }
             
             let verticalDuration: Double = ChatMessageTransitionNodeImpl.animationDuration
@@ -428,12 +492,11 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
 
                 let targetAbsoluteRect = self.contextSourceNode.view.convert(self.contextSourceNode.contentRect, to: self.view)
 
-                let sourceRect = self.view.convert(initialTextInput.sourceRect, from: nil)
+                let sourceRect = convertAnimatingSourceRectFromWindow(initialTextInput.sourceRect, toView: self.view)
                 let sourceBackgroundAbsoluteRect = initialTextInput.backgroundView.frame.offsetBy(dx: sourceRect.minX, dy: sourceRect.minY)
                 let sourceAbsoluteRect = CGRect(origin: CGPoint(x: sourceBackgroundAbsoluteRect.minX, y: sourceBackgroundAbsoluteRect.maxY - self.contextSourceNode.contentRect.height), size: self.contextSourceNode.contentRect.size)
 
                 let textInput = ChatMessageTransitionNodeImpl.Source.TextInput(backgroundView: initialTextInput.backgroundView, contentView: initialTextInput.contentView, sourceRect: sourceRect, scrollOffset: initialTextInput.scrollOffset)
-
                 textInput.backgroundView.frame = CGRect(origin: CGPoint(x: 0.0, y: sourceAbsoluteRect.height - sourceBackgroundAbsoluteRect.height), size: textInput.backgroundView.bounds.size)
                 textInput.contentView.frame = textInput.contentView.frame.offsetBy(dx: 0.0, dy: sourceAbsoluteRect.height - sourceBackgroundAbsoluteRect.height)
 
@@ -443,7 +506,7 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
                     var replySourceAbsoluteFrame: CGRect
                     
                     if let storedFrameBeforeDismissed = replyPanel.storedFrameBeforeDismissed {
-                        replySourceAbsoluteFrame = self.view.convert(storedFrameBeforeDismissed, from: nil)
+                        replySourceAbsoluteFrame = convertAnimatingSourceRectFromWindow(storedFrameBeforeDismissed, toView: self.view)
                     } else {
                         replySourceAbsoluteFrame = replyPanelParentView.convert(replyPanelFrame, to: self.view)
                     }
@@ -477,6 +540,7 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
 
                 self.containerNode.frame = targetAbsoluteRect.offsetBy(dx: -self.contextSourceNode.contentRect.minX, dy: -self.contextSourceNode.contentRect.minY)
                 self.contextSourceNode.updateAbsoluteRect?(self.containerNode.frame, UIScreen.main.bounds.size)
+                
                 self.containerNode.layer.animatePosition(from: CGPoint(x: 0.0, y: sourceAbsoluteRect.maxY - targetAbsoluteRect.maxY), to: CGPoint(), duration: verticalDuration, delay: delay, mediaTimingFunction: verticalCurve.mediaTimingFunction, additive: true, force: true, completion: { [weak self] _ in
                     guard let strongSelf = self else {
                         return
@@ -484,6 +548,7 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
                     strongSelf.endAnimation()
                 })
                 self.containerNode.layer.animatePosition(from: CGPoint(x: sourceAbsoluteRect.minX - targetAbsoluteRect.minX, y: 0.0), to: CGPoint(), duration: horizontalDuration, delay: delay, mediaTimingFunction: horizontalCurve.mediaTimingFunction, additive: true)
+                
                 self.contextSourceNode.applyAbsoluteOffset?(CGPoint(x: sourceAbsoluteRect.minX - targetAbsoluteRect.minX, y: 0.0), horizontalCurve, horizontalDuration)
                 self.contextSourceNode.applyAbsoluteOffset?(CGPoint(x: 0.0, y: sourceAbsoluteRect.maxY - targetAbsoluteRect.maxY), verticalCurve, verticalDuration)
 
@@ -1098,8 +1163,10 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
                 overlayController.displayNode.addSubnode(animatingItemNode)
                 animatingItemNode.overlayController = overlayController
                 self.listNode.context.sharedContext.mainWindow?.presentInGlobalOverlay(overlayController)
+                animatingItemNode.frame = self.bounds
             default:
-                self.addSubnode(animatingItemNode)
+                animatingItemNode.frame = CGRect()
+                itemNode.addSubnode(animatingItemNode)
             }
 
             animatingItemNode.animationEnded = { [weak self, weak animatingItemNode] in
@@ -1120,7 +1187,6 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
                 }
             }
 
-            animatingItemNode.frame = self.bounds
             animatingItemNode.beginAnimation()
 
             self.onTransitionEvent(.animated(duration: ChatMessageTransitionNodeImpl.animationDuration, curve: ChatMessageTransitionNodeImpl.verticalAnimationCurve))
@@ -1149,15 +1215,15 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
         }
     }
     
-    func addMessageContextController(messageId: MessageId, contextController: ContextController) {
+    func addMessageContextController(messageId: EngineMessage.Id, contextController: ContextController) {
         self.addMessageReactionContextContext(messageId: messageId, contextController: contextController, standaloneReactionAnimation: nil)
     }
     
-    func addMessageStandaloneReactionAnimation(messageId: MessageId, standaloneReactionAnimation: StandaloneReactionAnimation) {
+    func addMessageStandaloneReactionAnimation(messageId: EngineMessage.Id, standaloneReactionAnimation: StandaloneReactionAnimation) {
         self.addMessageReactionContextContext(messageId: messageId, contextController: nil, standaloneReactionAnimation: standaloneReactionAnimation)
     }
     
-    private func addMessageReactionContextContext(messageId: MessageId, contextController: ContextController?, standaloneReactionAnimation: StandaloneReactionAnimation?) {
+    private func addMessageReactionContextContext(messageId: EngineMessage.Id, contextController: ContextController?, standaloneReactionAnimation: StandaloneReactionAnimation?) {
         self.removeEmptyMessageReactionContexts()
         
         var messageItemNode: ListViewItemNode?
@@ -1182,9 +1248,9 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
     }
 
     func addExternalOffset(offset: CGFloat, transition: ContainedViewLayoutTransition, itemNode: ListViewItemNode?, isRotated: Bool) {
-        for animatingItemNode in self.animatingItemNodes {
+        /*for animatingItemNode in self.animatingItemNodes {
             animatingItemNode.addExternalOffset(offset: offset, transition: transition, itemNode: itemNode)
-        }
+        }*/
         if itemNode == nil {
             for decorationItemNode in self.decorationItemNodes {
                 decorationItemNode.addExternalOffset(offset: offset, transition: transition)
@@ -1205,9 +1271,9 @@ public final class ChatMessageTransitionNodeImpl: ASDisplayNode, ChatMessageTran
     }
 
     func addContentOffset(offset: CGFloat, itemNode: ListViewItemNode?) {
-        for animatingItemNode in self.animatingItemNodes {
+        /*for animatingItemNode in self.animatingItemNodes {
             animatingItemNode.addContentOffset(offset: offset, itemNode: itemNode)
-        }
+        }*/
         if itemNode == nil {
             for decorationItemNode in self.decorationItemNodes {
                 decorationItemNode.addContentOffset(offset: offset)

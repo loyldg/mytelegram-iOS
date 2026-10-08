@@ -3,7 +3,6 @@ import UIKit
 import Display
 import AsyncDisplayKit
 import SwiftSignalKit
-import Postbox
 import TelegramCore
 import TelegramPresentationData
 import AppBundle
@@ -16,14 +15,14 @@ import ContextControllerImpl
 
 public final class ChatSendAsPeerListContextItem: ContextMenuCustomItem {
     let context: AccountContext
-    let chatPeerId: PeerId
+    let chatPeerId: EnginePeer.Id
     let peers: [SendAsPeer]
-    let selectedPeerId: PeerId?
+    let selectedPeerId: EnginePeer.Id?
     let isPremium: Bool
     let action: (EnginePeer) -> Void
     let presentToast: (EnginePeer) -> Void
     
-    public init(context: AccountContext, chatPeerId: PeerId, peers: [SendAsPeer], selectedPeerId: PeerId?, isPremium: Bool, action: @escaping (EnginePeer) -> Void, presentToast: @escaping (EnginePeer) -> Void) {
+    public init(context: AccountContext, chatPeerId: EnginePeer.Id, peers: [SendAsPeer], selectedPeerId: EnginePeer.Id?, isPremium: Bool, action: @escaping (EnginePeer) -> Void, presentToast: @escaping (EnginePeer) -> Void) {
         self.context = context
         self.chatPeerId = chatPeerId
         self.peers = peers
@@ -70,8 +69,8 @@ private final class ChatSendAsPeerListContextItemNode: ASDisplayNode, ContextMen
             if peer.peer.id.namespace == Namespaces.Peer.CloudUser {
                 subtitle = presentationData.strings.VoiceChat_PersonalAccount
             } else if let subscribers = peer.subscribers {
-                if let peer = peer.peer as? TelegramChannel {
-                    if case .broadcast = peer.info {
+                if case let .channel(channel) = peer.peer {
+                    if case .broadcast = channel.info {
                         subtitle = presentationData.strings.Conversation_StatusSubscribers(subscribers)
                     } else {
                         subtitle = presentationData.strings.VoiceChat_DiscussionGroup
@@ -86,7 +85,7 @@ private final class ChatSendAsPeerListContextItemNode: ASDisplayNode, ContextMen
                 selectedItemIndex = i
             }
             let extendedAvatarSize = CGSize(width: 35.0, height: 35.0)
-            let avatarSignal = peerAvatarCompleteImage(account: item.context.account, peer: EnginePeer(peer.peer), size: avatarSize)
+            let avatarSignal = peerAvatarCompleteImage(account: item.context.account, peer: peer.peer, size: avatarSize)
             |> map { image -> UIImage? in
                 if isSelected, let image = image {
                     return generateImage(extendedAvatarSize, rotatedContext: { size, context in
@@ -107,18 +106,18 @@ private final class ChatSendAsPeerListContextItemNode: ASDisplayNode, ContextMen
                 }
             }
             
-            let action = ContextMenuActionItem(text: EnginePeer(peer.peer).displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder), textLayout: subtitle.flatMap { .secondLineWithValue($0) } ?? .singleLine, icon: { _ in nil }, iconSource: ContextMenuActionItemIconSource(size: isSelected ? extendedAvatarSize : avatarSize, signal: avatarSignal), textIcon: { theme in
+            let action = ContextMenuActionItem(text: peer.peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder), textLayout: subtitle.flatMap { .secondLineWithValue($0) } ?? .singleLine, icon: { _ in nil }, iconSource: ContextMenuActionItemIconSource(size: isSelected ? extendedAvatarSize : avatarSize, signal: avatarSignal), textIcon: { theme in
                 return !item.isPremium && peer.isPremiumRequired ? generateTintedImage(image: UIImage(bundleImageName: "Chat/Input/Accessory Panels/TextLockIcon"), color: theme.contextMenu.badgeInactiveFillColor) : nil
             }, action: { _, f in
                 f(.default)
 
                 if !item.isPremium && peer.isPremiumRequired {
-                    item.presentToast(EnginePeer(peer.peer))
+                    item.presentToast(peer.peer)
                     return
                 }
                 
                 if peer.peer.id != item.selectedPeerId {
-                    item.action(EnginePeer(peer.peer))
+                    item.action(peer.peer)
                 }
             })
             let actionNode = ContextActionNode(presentationData: presentationData, action: action, getController: getController, actionSelected: actionSelected, requestLayout: {}, requestUpdateAction: { _, _ in
@@ -153,6 +152,7 @@ private final class ChatSendAsPeerListContextItemNode: ASDisplayNode, ContextMen
         self.scrollNode.view.alwaysBounceVertical = false
         self.scrollNode.view.showsHorizontalScrollIndicator = false
         self.scrollNode.view.scrollIndicatorInsets = UIEdgeInsets(top: 0.0, left: 0.0, bottom: 5.0, right: 0.0)
+        self.scrollNode.view.scrollsToTop = false
     }
 
     func updateLayout(constrainedWidth: CGFloat, constrainedHeight: CGFloat) -> (CGSize, (CGSize, ContainedViewLayoutTransition) -> Void) {

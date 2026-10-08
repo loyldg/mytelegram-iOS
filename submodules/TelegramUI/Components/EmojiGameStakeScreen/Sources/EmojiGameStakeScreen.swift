@@ -4,7 +4,6 @@ import AsyncDisplayKit
 import Display
 import ComponentFlow
 import SwiftSignalKit
-import Postbox
 import TelegramCore
 import Markdown
 import TextFormat
@@ -1009,7 +1008,7 @@ public final class AmountFieldComponent: Component {
             case .stars:
                 text = "\(value)"
             case .ton:
-                text = "\(formatTonAmountText(value, dateTimeFormat: PresentationDateTimeFormat(timeFormat: component.dateTimeFormat.timeFormat, dateFormat: component.dateTimeFormat.dateFormat, dateSeparator: "", dateSuffix: "", requiresFullYear: false, decimalSeparator: ".", groupingSeparator: ""), maxDecimalPositions: nil))"
+                text = "\(formatTonAmountText(value, dateTimeFormat: PresentationDateTimeFormat(timeFormat: component.dateTimeFormat.timeFormat, dateFormat: component.dateTimeFormat.dateFormat, dateSeparator: "", dateSuffix: "", requiresFullYear: false, decimalSeparator: component.dateTimeFormat.decimalSeparator, groupingSeparator: component.dateTimeFormat.groupingSeparator), maxDecimalPositions: nil))"
             }
             self.textField.text = text
             self.placeholderView.view?.isHidden = !(self.textField.text ?? "").isEmpty
@@ -1029,7 +1028,7 @@ public final class AmountFieldComponent: Component {
                     case .stars:
                         text = "\(value)"
                     case .ton:
-                        text = "\(formatTonAmountText(value, dateTimeFormat: PresentationDateTimeFormat(timeFormat: component.dateTimeFormat.timeFormat, dateFormat: component.dateTimeFormat.dateFormat, dateSeparator: "", dateSuffix: "", requiresFullYear: false, decimalSeparator: ".", groupingSeparator: ""), maxDecimalPositions: nil))"
+                        text = "\(formatTonAmountText(value, dateTimeFormat: PresentationDateTimeFormat(timeFormat: component.dateTimeFormat.timeFormat, dateFormat: component.dateTimeFormat.dateFormat, dateSeparator: "", dateSuffix: "", requiresFullYear: false, decimalSeparator: component.dateTimeFormat.decimalSeparator, groupingSeparator: component.dateTimeFormat.groupingSeparator), maxDecimalPositions: nil))"
                     }
                     self.textField.text = text
                     self.placeholderView.view?.isHidden = !text.isEmpty
@@ -1143,7 +1142,7 @@ public final class AmountFieldComponent: Component {
                 iconMaxSize = CGSize(width: 22.0, height: 22.0)
             case .ton:
                 iconName = "Ads/TonBig"
-                iconTintColor = component.accentColor
+                iconTintColor = UIColor(rgb: 0x30A1F5)
                 iconMaxSize = CGSize(width: 18.0, height: 18.0)
                 iconOffset = CGPoint(x: 3.0, y: 1.0)
             }

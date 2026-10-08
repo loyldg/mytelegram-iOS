@@ -93,15 +93,24 @@ public final class ListActionItemComponent: Component {
     
     public enum LeftIcon: Equatable {
         public final class Check: Equatable {
+            public enum Style {
+                case round
+                case rectangle
+                case tick
+            }
+            
+            public let style: Style
             public let isSelected: Bool
             public let isEnabled: Bool
             public let toggle: (() -> Void)?
             
             public init(
+                style: Style = .round,
                 isSelected: Bool,
                 isEnabled: Bool = true,
                 toggle: (() -> Void)?
             ) {
+                self.style = style
                 self.isSelected = isSelected
                 self.isEnabled = isEnabled
                 self.toggle = toggle
@@ -110,6 +119,9 @@ public final class ListActionItemComponent: Component {
             public static func ==(lhs: Check, rhs: Check) -> Bool {
                 if lhs === rhs {
                     return true
+                }
+                if lhs.style != rhs.style {
+                    return false
                 }
                 if lhs.isSelected != rhs.isSelected {
                     return false
@@ -268,7 +280,7 @@ public final class ListActionItemComponent: Component {
     
     private final class CheckView: HighlightTrackingButton {
         private var checkLayer: CheckLayer?
-        private var theme: PresentationTheme?
+        private var theme: CheckNodeTheme?
         
         var action: (() -> Void)?
         
@@ -318,20 +330,20 @@ public final class ListActionItemComponent: Component {
             self.action?()
         }
         
-        func update(size: CGSize, theme: PresentationTheme, isSelected: Bool, transition: ComponentTransition) {
+        func update(size: CGSize, theme: CheckNodeTheme, isSelected: Bool, style: ListActionItemComponent.LeftIcon.Check.Style, transition: ComponentTransition) {
             let checkLayer: CheckLayer
             if let current = self.checkLayer {
                 checkLayer = current
             } else {
-                checkLayer = CheckLayer(theme: CheckNodeTheme(theme: theme, style: .plain), content: .check(isRectangle: false))
+                checkLayer = CheckLayer(theme: theme, content: .check(isRectangle: style == .rectangle))
                 self.checkLayer = checkLayer
                 self.layer.addSublayer(checkLayer)
             }
             
-            if self.theme !== theme {
+            if self.theme != theme {
                 self.theme = theme
                 
-                checkLayer.theme = CheckNodeTheme(theme: theme, style: .plain)
+                checkLayer.theme = theme
             }
             
             checkLayer.frame = CGRect(origin: CGPoint(), size: size)
@@ -508,6 +520,8 @@ public final class ListActionItemComponent: Component {
                 case .custom:
                     contentLeftInset += 46.0
                 }
+            } else {
+                contentLeftInset += component.contentInsets.left
             }
 
             let titleSize = self.title.update(
@@ -618,18 +632,29 @@ public final class ListActionItemComponent: Component {
                     leftCheckView.isUserInteractionEnabled = check.toggle != nil
                     leftCheckView.alpha = check.isEnabled ? 1.0 : 0.3
                     
-                    let checkSize = CGSize(width: 22.0, height: 22.0)
-                    let checkFrame = CGRect(origin: CGPoint(x: floor((contentLeftInset - checkSize.width) * 0.5), y: floor((contentHeight - checkSize.height) * 0.5)), size: checkSize)
-                    
+                    let checkSize: CGSize
+                    let checkY: CGFloat
+                    let checkTheme: CheckNodeTheme
+                    switch check.style {
+                    case .tick:
+                        checkSize = CGSize(width: 33.0, height: 33.0)
+                        checkY = component.contentInsets.top - 7.0
+                        checkTheme = CheckNodeTheme(backgroundColor: .clear, strokeColor: component.theme.list.itemCheckColors.fillColor, borderColor: .clear, overlayBorder: false, hasInset: false, hasShadow: false, checkmarkLineWidth: 2.25)
+                    default:
+                        checkSize = CGSize(width: 22.0, height: 22.0)
+                        checkY = floor((contentHeight - checkSize.height) * 0.5)
+                        checkTheme = CheckNodeTheme(theme: component.theme, style: .plain)
+                    }
+                    let checkFrame = CGRect(origin: CGPoint(x: floor((contentLeftInset - checkSize.width) * 0.5), y: checkY), size: checkSize)
                     if animateIn {
                         leftCheckView.frame = CGRect(origin: CGPoint(x: -checkSize.width, y: self.bounds.height == 0.0 ? checkFrame.minY : floor((self.bounds.height - checkSize.height) * 0.5)), size: checkFrame.size)
                         transition.setPosition(view: leftCheckView, position: checkFrame.center)
                         transition.setBounds(view: leftCheckView, bounds: CGRect(origin: CGPoint(), size: checkFrame.size))
-                        leftCheckView.update(size: checkFrame.size, theme: component.theme, isSelected: check.isSelected, transition: .immediate)
+                        leftCheckView.update(size: checkFrame.size, theme: checkTheme, isSelected: check.isSelected, style: check.style, transition: .immediate)
                     } else {
                         transition.setPosition(view: leftCheckView, position: checkFrame.center)
                         transition.setBounds(view: leftCheckView, bounds: CGRect(origin: CGPoint(), size: checkFrame.size))
-                        leftCheckView.update(size: checkFrame.size, theme: component.theme, isSelected: check.isSelected, transition: transition)
+                        leftCheckView.update(size: checkFrame.size, theme: checkTheme, isSelected: check.isSelected, style: check.style, transition: transition)
                     }
                 case let .custom(customLeftIcon, adjustLeftInset):
                     var resetLeftIcon = false
@@ -716,7 +741,8 @@ public final class ListActionItemComponent: Component {
                 }
             }
             
-            if case .arrow = component.accessory {
+            switch component.accessory {
+            case .arrow:
                 let arrowView: UIImageView
                 var arrowTransition = transition
                 if let current = self.arrowView {
@@ -735,14 +761,7 @@ public final class ListActionItemComponent: Component {
                     let arrowFrame = CGRect(origin: CGPoint(x: availableSize.width - 7.0 - image.size.width, y: floor((contentHeight - image.size.height) * 0.5)), size: image.size)
                     arrowTransition.setFrame(view: arrowView, frame: arrowFrame)
                 }
-            } else {
-                if let arrowView = self.arrowView {
-                    self.arrowView = nil
-                    arrowView.removeFromSuperview()
-                }
-            }
-            
-            if case .expandArrows = component.accessory {
+            case .expandArrows:
                 let arrowView: UIImageView
                 var arrowTransition = transition
                 if let current = self.arrowView {
@@ -761,7 +780,7 @@ public final class ListActionItemComponent: Component {
                     let arrowFrame = CGRect(origin: CGPoint(x: availableSize.width - 16.0 - image.size.width, y: floor((contentHeight - image.size.height) * 0.5)), size: image.size)
                     arrowTransition.setFrame(view: arrowView, frame: arrowFrame)
                 }
-            } else {
+            default:
                 if let arrowView = self.arrowView {
                     self.arrowView = nil
                     arrowView.removeFromSuperview()

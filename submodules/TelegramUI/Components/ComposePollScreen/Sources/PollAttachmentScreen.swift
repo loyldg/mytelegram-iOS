@@ -3,7 +3,6 @@ import UIKit
 import Display
 import AccountContext
 import TelegramCore
-import Postbox
 import SwiftSignalKit
 import TelegramPresentationData
 import LegacyComponents
@@ -16,11 +15,41 @@ import LocationUI
 import AttachmentFileController
 import ChatEntityKeyboardInputNode
 import ICloudResources
+import ChatTextLinkEditUI
 
 public enum PollAttachmentSubject {
     case description
     case quizAnswer
     case option
+    case richText
+}
+
+func makePollAttachmentLinkWebpage(link: String) -> TelegramMediaWebpage {
+    let mediaId = Int64.random(in: Int64.min ... Int64.max)
+    return TelegramMediaWebpage(
+        webpageId: EngineMedia.Id(namespace: Namespaces.Media.LocalFile, id: mediaId),
+        content: .Loaded(TelegramMediaWebpageLoadedContent(
+            url: link,
+            displayUrl: link,
+            hash: 0,
+            type: nil,
+            websiteName: nil,
+            title: nil,
+            text: nil,
+            embedUrl: nil,
+            embedType: nil,
+            embedSize: nil,
+            duration: nil,
+            author: nil,
+            isMediaLargeByDefault: nil,
+            imageIsVideoCover: false,
+            image: nil,
+            file: nil,
+            story: nil,
+            attributes: [],
+            instantPage: nil
+        ))
+    )
 }
 
 public func presentPollAttachmentScreen(
@@ -39,10 +68,7 @@ public func presentPollAttachmentScreen(
         chatLocation: nil,
         isScheduledMessages: false,
         buttons: availableButtons,
-        initialButton: .gallery,
-        makeEntityInputView: {
-            return nil
-        }
+        initialButton: .gallery
     )
     let inputMediaNodeDataPromise = Promise<ChatEntityKeyboardInputNode.InputData?>(nil)
     if let inputMediaNodeData {
@@ -64,30 +90,45 @@ public func presentPollAttachmentScreen(
             |> map(Optional.init)
         ))
     }
-    
+
     attachmentController.requestController = { [weak attachmentController] type, controllerCompletion in
-        let mediaPickerPollSubject: MediaPickerScreenImpl.Subject.AssetsMode.PollMode
-        let filePickerPollSubject: AttachmentFileControllerSource.PollMode
+        let mediaPickerAssetsMode: MediaPickerScreenImpl.Subject.AssetsMode
+        let filePickerSource: AttachmentFileControllerSource
+        let filePickerAssetsMode: MediaPickerScreenImpl.Subject.AssetsMode
+        
         let locationPickerPollSubject: LocationPickerController.Source.PollMode
         let stickerPickerPollSubject: StickerAttachmentScreen.Source.PollMode
         switch subject {
         case .description:
-            mediaPickerPollSubject = .description
-            filePickerPollSubject = .description
+            mediaPickerAssetsMode = .poll(mode: .description, asFile: false)
+            filePickerAssetsMode = .poll(mode: .description, asFile: true)
+            filePickerSource = .poll(.description)
+            
             locationPickerPollSubject = .description
             stickerPickerPollSubject = .description
         case .quizAnswer:
-            mediaPickerPollSubject = .quizAnswer
-            filePickerPollSubject = .quizAnswer
+            mediaPickerAssetsMode = .poll(mode: .quizAnswer, asFile: false)
+            filePickerAssetsMode = .poll(mode: .quizAnswer, asFile: true)
+            filePickerSource = .poll(.quizAnswer)
+            
             locationPickerPollSubject = .quizAnswer
             stickerPickerPollSubject = .quizAnswer
-        default:
-            mediaPickerPollSubject = .option
-            filePickerPollSubject = .description
+        case .option:
+            mediaPickerAssetsMode = .poll(mode: .option, asFile: false)
+            filePickerAssetsMode = .poll(mode: .option, asFile: true)
+            filePickerSource = .poll(.quizAnswer)
+            
             locationPickerPollSubject = .option
             stickerPickerPollSubject = .option
+        case .richText:
+            mediaPickerAssetsMode = .richText(asFile: false)
+            filePickerAssetsMode = .richText(asFile: true)
+            filePickerSource = .richText
+            
+            locationPickerPollSubject = .richText
+            stickerPickerPollSubject = .richText
         }
-        
+
         switch type {
         case .gallery:
             let controller = MediaPickerScreenImpl(
@@ -98,7 +139,7 @@ public func presentPollAttachmentScreen(
                 threadTitle: nil,
                 chatLocation: nil,
                 enableMultiselection: false,
-                subject: .assets(nil, .poll(mode: mediaPickerPollSubject, asFile: false))
+                subject: .assets(nil, mediaPickerAssetsMode)
             )
             controller.getCaptionPanelView = {
                 return nil
@@ -114,15 +155,16 @@ public func presentPollAttachmentScreen(
             }
             controllerCompletion(controller, controller.mediaPickerContext)
             return true
-        case .file:
+        case .file, .audio:
             let controller = makeAttachmentFileControllerImpl(
                 context: context,
                 updatedPresentationData: updatedPresentationData,
-                source: .poll(filePickerPollSubject),
+                mode: type == .audio ? .audio(.story) : .recent,
+                source: filePickerSource,
                 bannedSendMedia: nil,
                 presentGallery: { [weak attachmentController] in
                     attachmentController?.dismiss(animated: true)
-                    
+
                     let controller = MediaPickerScreenImpl(
                         context: context,
                         updatedPresentationData: updatedPresentationData,
@@ -131,7 +173,7 @@ public func presentPollAttachmentScreen(
                         threadTitle: nil,
                         chatLocation: nil,
                         enableMultiselection: false,
-                        subject: .assets(nil, .poll(mode: mediaPickerPollSubject, asFile: true))
+                        subject: .assets(nil, filePickerAssetsMode)
                     )
                     controller.getCaptionPanelView = {
                         return nil
@@ -150,7 +192,7 @@ public func presentPollAttachmentScreen(
                 },
                 presentFiles: { [weak attachmentController] in
                     attachmentController?.dismiss(animated: true)
-                    
+
                     let presentationData = updatedPresentationData?.initial ?? context.sharedContext.currentPresentationData.with { $0 }
                     let controller = legacyICloudFilePicker(theme: presentationData.theme, documentTypes: ["public.item"], completion: { urls in
                         guard let url = urls.first else {
@@ -172,8 +214,8 @@ public func presentPollAttachmentScreen(
                             if let audioMetadata = item.audioMetadata {
                                 attributes.append(.Audio(isVoice: false, duration: audioMetadata.duration, title: audioMetadata.title, performer: audioMetadata.performer, waveform: nil))
                             }
-                            
-                            let file = TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: fileId), partialReference: nil, resource: ICloudFileResource(urlData: item.urlData, thumbnail: false), previewRepresentations: previewRepresentations, videoThumbnails: [], immediateThumbnailData: nil, mimeType: mimeType, size: Int64(item.fileSize), attributes: attributes, alternativeRepresentations: [])
+
+                            let file = TelegramMediaFile(fileId: EngineMedia.Id(namespace: Namespaces.Media.LocalFile, id: fileId), partialReference: nil, resource: ICloudFileResource(urlData: item.urlData, thumbnail: false), previewRepresentations: previewRepresentations, videoThumbnails: [], immediateThumbnailData: nil, mimeType: mimeType, size: Int64(item.fileSize), attributes: attributes, alternativeRepresentations: [])
                             completion(.standalone(media: file))
                         })
                     })
@@ -236,6 +278,29 @@ public func presentPollAttachmentScreen(
                 controllerCompletion(controller, controller.mediaPickerContext)
             })
             return true
+        case .link:
+            attachmentController?.dismiss(animated: true)
+
+            let presentationData = updatedPresentationData?.initial ?? context.sharedContext.currentPresentationData.with { $0 }
+            let controller = chatTextLinkEditController(
+                context: context,
+                updatedPresentationData: updatedPresentationData,
+                text: presentationData.strings.CreatePoll_Link_Description,
+                link: nil,
+                preview: true,
+                apply: { link, webpage in
+                    guard let link else {
+                        return
+                    }
+                    if let webpage {
+                        completion(.standalone(media: webpage))
+                        return
+                    }
+                    completion(.standalone(media: makePollAttachmentLinkWebpage(link: link)))
+                }
+            )
+            present(controller, false)
+            return false
         default:
             return false
         }

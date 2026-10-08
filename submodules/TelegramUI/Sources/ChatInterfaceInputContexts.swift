@@ -1,7 +1,6 @@
 import Foundation
 import UIKit
 import TelegramCore
-import Postbox
 import Display
 import AccountContext
 import Emoji
@@ -43,8 +42,10 @@ func serviceTasksForChatPresentationIntefaceState(context: AccountContext, chatP
                                 }
                             })
                             
-                            inputState.inputText = text
-                            
+                            // `inputText` is now a derived view (Piece 5), so rebuild the state from the new
+                            // text, preserving the selection (semantic "replace content, keep selection").
+                            inputState = ChatTextInputState(inputText: text, selectionRange: inputState.selectionRange)
+
                             return interfaceState.withUpdatedComposeInputState(inputState)
                         }
                     })
@@ -172,7 +173,7 @@ func inputTextPanelStateForChatPresentationInterfaceState(_ chatPresentationInte
                 return ChatTextInputPanelState(accessoryItems: accessoryItems, contextPlaceholder: contextPlaceholder, mediaRecordingState: chatPresentationInterfaceState.inputTextPanelState.mediaRecordingState)
             } else {
                 var accessoryItems: [ChatTextInputAccessoryItem] = []
-                var isTextEmpty = chatPresentationInterfaceState.interfaceState.composeInputState.inputText.length == 0
+                var isTextEmpty = chatPresentationInterfaceState.interfaceState.composeInputState.isEmpty
                 if controller.isUpdatingChatLocationThread {
                     isTextEmpty = true
                 }
@@ -188,9 +189,9 @@ func inputTextPanelStateForChatPresentationInterfaceState(_ chatPresentationInte
                 if !extendedSearchLayout {
                     if case .scheduledMessages = chatPresentationInterfaceState.subject {
                     } else if chatPresentationInterfaceState.renderedPeer?.peerId != context.account.peerId {
-                        if let peer = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramSecretChat, chatPresentationInterfaceState.interfaceState.composeInputState.inputText.length == 0 {
+                        if let peer = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramSecretChat, chatPresentationInterfaceState.interfaceState.composeInputState.isEmpty {
                             accessoryItems.append(.messageAutoremoveTimeout(peer.messageAutoremoveTimeout))
-                        } else if currentAutoremoveTimeout != nil && chatPresentationInterfaceState.interfaceState.composeInputState.inputText.length == 0 {
+                        } else if currentAutoremoveTimeout != nil && chatPresentationInterfaceState.interfaceState.composeInputState.isEmpty {
                             accessoryItems.append(.messageAutoremoveTimeout(currentAutoremoveTimeout))
                         }
                     }
@@ -221,7 +222,7 @@ func inputTextPanelStateForChatPresentationInterfaceState(_ chatPresentationInte
                 var stickersEnabled = true
                 var stickersAreEmoji = !isTextEmpty
                 if let peer = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramChannel {
-                    if isTextEmpty, case .broadcast = peer.info, canSendMessagesToPeer(peer) {
+                    if isTextEmpty, case .broadcast = peer.info, canSendMessagesToPeer(EnginePeer(peer)) {
                         accessoryItems.append(.silentPost(chatPresentationInterfaceState.interfaceState.silentPosting))
                     }
                     if let boostsToUnrestrict = chatPresentationInterfaceState.boostsToUnrestrict, boostsToUnrestrict > 0 {

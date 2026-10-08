@@ -5,29 +5,39 @@ import TelegramApi
 import MtProtoKit
 
 public struct FoundPeer: Equatable {
-    public let peer: Peer
+    public let peer: EnginePeer
     public let subscribers: Int32?
-    
-    public init(peer: Peer, subscribers: Int32?) {
+
+    public init(peer: EnginePeer, subscribers: Int32?) {
         self.peer = peer
         self.subscribers = subscribers
     }
-    
+
     public static func ==(lhs: FoundPeer, rhs: FoundPeer) -> Bool {
-        return lhs.peer.isEqual(rhs.peer) && lhs.subscribers == rhs.subscribers
+        return lhs.peer == rhs.peer && lhs.subscribers == rhs.subscribers
     }
 }
 
-public enum TelegramSearchPeersScope: Equatable {
+public enum TelegramSearchPeersScope: Equatable, Hashable {
     case everywhere
     case channels
     case groups
     case privateChats
+    case bots
     case globalPosts(allowPaidStars: Int?)
 }
 
 public func _internal_searchPeers(accountPeerId: PeerId, postbox: Postbox, network: Network, query: String, scope: TelegramSearchPeersScope) -> Signal<([FoundPeer], [FoundPeer]), NoError> {
-    let searchResult = network.request(Api.functions.contacts.search(q: query, limit: 20), automaticFloodWait: false)
+    var flags: Int32 = 0
+    switch scope {
+    case .channels:
+        flags = 1 << 0
+    case .bots:
+        flags = 1 << 1
+    default:
+        break
+    }
+    let searchResult = network.request(Api.functions.contacts.search(flags: flags, q: query, limit: 20), automaticFloodWait: false)
     |> map(Optional.init)
     |> `catch` { _ in
         return Signal<Api.contacts.Found?, NoError>.single(nil)
@@ -67,9 +77,9 @@ public func _internal_searchPeers(accountPeerId: PeerId, postbox: Postbox, netwo
                                 continue
                             }
                             if let user = peer as? TelegramUser {
-                                renderedMyPeers.append(FoundPeer(peer: peer, subscribers: user.subscriberCount))
+                                renderedMyPeers.append(FoundPeer(peer: EnginePeer(peer), subscribers: user.subscriberCount))
                             } else {
-                                renderedMyPeers.append(FoundPeer(peer: peer, subscribers: subscribers[peerId]))
+                                renderedMyPeers.append(FoundPeer(peer: EnginePeer(peer), subscribers: subscribers[peerId]))
                             }
                         }
                     }
@@ -82,9 +92,9 @@ public func _internal_searchPeers(accountPeerId: PeerId, postbox: Postbox, netwo
                                 continue
                             }
                             if let user = peer as? TelegramUser {
-                                renderedPeers.append(FoundPeer(peer: peer, subscribers: user.subscriberCount))
+                                renderedPeers.append(FoundPeer(peer: EnginePeer(peer), subscribers: user.subscriberCount))
                             } else {
-                                renderedPeers.append(FoundPeer(peer: peer, subscribers: subscribers[peerId]))
+                                renderedPeers.append(FoundPeer(peer: EnginePeer(peer), subscribers: subscribers[peerId]))
                             }
                         }
                     }
@@ -94,14 +104,14 @@ public func _internal_searchPeers(accountPeerId: PeerId, postbox: Postbox, netwo
                         break
                     case .channels:
                         renderedMyPeers = renderedMyPeers.filter { item in
-                            if let channel = item.peer as? TelegramChannel, case .broadcast = channel.info {
+                            if case let .channel(channel) = item.peer, case .broadcast = channel.info {
                                 return true
                             } else {
                                 return false
                             }
                         }
                         renderedPeers = renderedPeers.filter { item in
-                            if let channel = item.peer as? TelegramChannel, case .broadcast = channel.info {
+                            if case let .channel(channel) = item.peer, case .broadcast = channel.info {
                                 return true
                             } else {
                                 return false
@@ -109,18 +119,18 @@ public func _internal_searchPeers(accountPeerId: PeerId, postbox: Postbox, netwo
                         }
                     case .groups:
                         renderedMyPeers = renderedMyPeers.filter { item in
-                            if let channel = item.peer as? TelegramChannel, case .group = channel.info {
+                            if case let .channel(channel) = item.peer, case .group = channel.info {
                                 return true
-                            } else if item.peer is TelegramGroup {
+                            } else if case .legacyGroup = item.peer {
                                 return true
                             } else {
                                 return false
                             }
                         }
                         renderedPeers = renderedPeers.filter { item in
-                            if let channel = item.peer as? TelegramChannel, case .group = channel.info {
+                            if case let .channel(channel) = item.peer, case .group = channel.info {
                                 return true
-                            } else if item.peer is TelegramGroup {
+                            } else if case .legacyGroup = item.peer {
                                 return true
                             } else {
                                 return false
@@ -128,14 +138,29 @@ public func _internal_searchPeers(accountPeerId: PeerId, postbox: Postbox, netwo
                         }
                     case .privateChats:
                         renderedMyPeers = renderedMyPeers.filter { item in
-                            if item.peer is TelegramUser {
+                            if case .user = item.peer {
                                 return true
                             } else {
                                 return false
                             }
                         }
                         renderedPeers = renderedPeers.filter { item in
-                            if item.peer is TelegramUser {
+                            if case .user = item.peer {
+                                return true
+                            } else {
+                                return false
+                            }
+                        }
+                    case .bots:
+                        renderedMyPeers = renderedMyPeers.filter { item in
+                            if case let .user(user) = item.peer, user.botInfo != nil {
+                                return true
+                            } else {
+                                return false
+                            }
+                        }
+                        renderedPeers = renderedPeers.filter { item in
+                            if case let .user(user) = item.peer, user.botInfo != nil {
                                 return true
                             } else {
                                 return false

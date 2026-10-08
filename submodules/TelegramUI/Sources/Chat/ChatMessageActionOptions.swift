@@ -3,7 +3,6 @@ import UIKit
 import AsyncDisplayKit
 import Display
 import SwiftSignalKit
-import Postbox
 import TelegramCore
 import TelegramPresentationData
 import AccountContext
@@ -27,6 +26,63 @@ private enum OptionsId: Hashable {
     case link
 }
 
+private func maybePresentForwardRichTextPremiumToast(selfController: ChatControllerImpl, chatController: ChatController, contextController: ContextController, messageIds: [EngineMessage.Id]) -> Disposable? {
+    guard !selfController.context.isPremium, !messageIds.isEmpty else {
+        return nil
+    }
+
+    let disposable = DisposableSet()
+    var overlayController: UndoOverlayController?
+    disposable.add(ActionDisposable {
+        overlayController?.dismiss()
+    })
+    disposable.add((selfController.context.account.postbox.messagesAtIds(messageIds)
+    |> take(1)
+    |> deliverOnMainQueue).startStandalone(next: { [weak selfController, weak chatController, weak contextController] messages in
+        guard let selfController, let chatController, messages.contains(where: { $0.richText != nil }) else {
+            return
+        }
+
+        let currentOverlayController = UndoOverlayController(
+            presentationData: selfController.presentationData,
+            content: .premiumPaywall(
+                title: nil,
+                text: "Subscribe to [Telegram Premium]() to forward formatted messages without the sender's name.",
+                customUndoText: nil,
+                timeout: 5.0,
+                linkAction: { [weak selfController, weak contextController] _ in
+                    guard let selfController else {
+                        return
+                    }
+                    contextController?.dismiss()
+                    let premiumController = selfController.context.sharedContext.makePremiumIntroController(context: selfController.context, source: .richText, forceDark: false, dismissed: nil)
+                    selfController.push(premiumController)
+                }
+            ),
+            elevatedLayout: false,
+            position: .bottom,
+            animateInAsReplacement: false,
+            action: { _ in
+                return false
+            }
+        )
+        overlayController = currentOverlayController
+        chatController.present(currentOverlayController, in: .current)
+    }))
+    return disposable
+}
+
+private func chatLocationMatchesDestination(_ chatLocation: ChatLocation, peerId: EnginePeer.Id, threadId: Int64?) -> Bool {
+    switch chatLocation {
+    case let .peer(id):
+        return id == peerId && threadId == nil
+    case let .replyThread(replyThreadMessage):
+        return replyThreadMessage.peerId == peerId && replyThreadMessage.threadId == threadId
+    case .customChatContents:
+        return false
+    }
+}
+
 private func presentChatInputOptions(selfController: ChatControllerImpl, sourceView: UIView, initialId: OptionsId) {
     var getContextController: (() -> ContextController?)?
     
@@ -41,10 +97,12 @@ private func presentChatInputOptions(selfController: ChatControllerImpl, sourceV
     }
     
     var forwardDismissedForCancel: (() -> Void)?
-    if let (source, dismissedForCancel) = chatForwardOptions(selfController: selfController, sourceView: sourceView, getContextController: {
+    var presentForwardRichTextPremiumToast: ((ContextController) -> Disposable?)?
+    if let (source, dismissedForCancel, presentRichTextPremiumToast) = chatForwardOptions(selfController: selfController, sourceView: sourceView, getContextController: {
         return getContextController?()
     }) {
         forwardDismissedForCancel = dismissedForCancel
+        presentForwardRichTextPremiumToast = presentRichTextPremiumToast
         sources.append(source)
     }
     
@@ -62,6 +120,7 @@ private func presentChatInputOptions(selfController: ChatControllerImpl, sourceV
 
     selfController.canReadHistory.set(false)
     
+    var richTextPremiumToastDisposable: Disposable?
     let contextController = makeContextController(
         presentationData: selfController.presentationData,
         configuration: ContextController.Configuration(
@@ -71,6 +130,7 @@ private func presentChatInputOptions(selfController: ChatControllerImpl, sourceV
     )
     contextController.dismissed = { [weak selfController] in
         selfController?.canReadHistory.set(true)
+        richTextPremiumToastDisposable?.dispose()
     }
     
     getContextController = { [weak contextController] in
@@ -82,9 +142,13 @@ private func presentChatInputOptions(selfController: ChatControllerImpl, sourceV
     }
     
     selfController.presentInGlobalOverlay(contextController)
+
+    if initialId == .forward {
+        richTextPremiumToastDisposable = presentForwardRichTextPremiumToast?(contextController)
+    }
 }
 
-private func chatForwardOptions(selfController: ChatControllerImpl, sourceView: UIView, getContextController: @escaping () -> ContextController?) -> (ContextController.Source, () -> Void)? {
+private func chatForwardOptions(selfController: ChatControllerImpl, sourceView: UIView, getContextController: @escaping () -> ContextController?) -> (ContextController.Source, () -> Void, (ContextController) -> Disposable?)? {
     guard let peerId = selfController.chatLocation.peerId else {
         return nil
     }
@@ -120,6 +184,7 @@ private func chatForwardOptions(selfController: ChatControllerImpl, sourceView: 
         messagesCount = .single(1)
     }
     
+    let isPremium = selfController.context.isPremium
     let accountPeerId = selfController.context.account.peerId
     let items = combineLatest(forwardOptions, selfController.context.account.postbox.messagesAtIds(messageIds), messagesCount)
     |> deliverOnMainQueue
@@ -130,11 +195,12 @@ private func chatForwardOptions(selfController: ChatControllerImpl, sourceView: 
         var items: [ContextMenuItem] = []
         
         var hasCaptions = false
-        var uniquePeerIds = Set<PeerId>()
+        var uniquePeerIds = Set<EnginePeer.Id>()
         
         var hasOther = false
         var hasNotOwnMessages = false
         var hasPaid = false
+        var hasRichMessages = false
         for message in messages {
             if let author = message.effectiveAuthor {
                 if !uniquePeerIds.contains(author.id) {
@@ -147,10 +213,8 @@ private func chatForwardOptions(selfController: ChatControllerImpl, sourceView: 
             }
             
             var isDice = false
-            var isMusic = false
             for media in message.media {
                 if let media = media as? TelegramMediaFile, media.isMusic {
-                    isMusic = true
                     if !message.text.isEmpty {
                         hasCaptions = true
                     }
@@ -164,12 +228,19 @@ private func chatForwardOptions(selfController: ChatControllerImpl, sourceView: 
                     hasPaid = true
                 }
             }
-            if !isDice && !isMusic {
+            if !isDice {
                 hasOther = true
+            }
+            if message.richText != nil {
+                hasRichMessages = true
             }
         }
         
         var canHideNames = hasNotOwnMessages && hasOther
+        var hideNamesEnabled = true
+        if hasRichMessages && !isPremium {
+            hideNamesEnabled = false
+        }
         if case let .peer(peerId) = selfController.chatLocation, peerId.namespace == Namespaces.Peer.SecretChat {
             canHideNames = false
         }
@@ -180,11 +251,11 @@ private func chatForwardOptions(selfController: ChatControllerImpl, sourceView: 
         let hideCaptions = forwardOptions.hideCaptions
         
         if canHideNames {
-            items.append(.action(ContextMenuActionItem(text: hideNames ? (uniquePeerIds.count == 1 ? presentationData.strings.Conversation_ForwardOptions_ShowSendersName : presentationData.strings.Conversation_ForwardOptions_ShowSendersNames) : (uniquePeerIds.count == 1 ? presentationData.strings.Conversation_ForwardOptions_HideSendersName : presentationData.strings.Conversation_ForwardOptions_HideSendersNames), icon: { _ in
+            items.append(.action(ContextMenuActionItem(text: hideNames ? (uniquePeerIds.count == 1 ? presentationData.strings.Conversation_ForwardOptions_ShowSendersName : presentationData.strings.Conversation_ForwardOptions_ShowSendersNames) : (uniquePeerIds.count == 1 ? presentationData.strings.Conversation_ForwardOptions_HideSendersName : presentationData.strings.Conversation_ForwardOptions_HideSendersNames), textColor: hideNamesEnabled ? .primary : .disabled, icon: { _ in
                 return nil
             }, iconAnimation: ContextMenuActionItem.IconAnimation(
                 name: !hideNames ? "message_preview_person_on" : "message_preview_person_off"
-            ), action: { [weak selfController] _, f in
+            ), action: !hideNamesEnabled ? nil : { [weak selfController] _, f in
                 selfController?.interfaceInteraction?.updateForwardOptionsState({ current in
                     var updated = current
                     if hideNames {
@@ -266,13 +337,19 @@ private func chatForwardOptions(selfController: ChatControllerImpl, sourceView: 
             selfController.updateChatPresentationInterfaceState(interactive: false, { $0.updatedInterfaceState({ $0.withUpdatedForwardMessageIds(forwardMessageIds) }) })
         }
     }
+    let presentRichTextPremiumToast: (ContextController) -> Disposable? = { [weak selfController, weak chatController] contextController in
+        guard let selfController, let chatController else {
+            return nil
+        }
+        return maybePresentForwardRichTextPremiumToast(selfController: selfController, chatController: chatController, contextController: contextController, messageIds: messageIds)
+    }
     
     return (ContextController.Source(
         id: AnyHashable(OptionsId.forward),
         title: selfController.presentationData.strings.Conversation_MessageOptionsTabForward,
         source: .controller(ChatContextControllerContentSourceImpl(controller: chatController, sourceView: sourceView, passthroughTouches: true)),
         items: items |> map { ContextController.Items(id: AnyHashable("forward"), content: .list($0)) }
-    ), dismissedForCancel)
+    ), dismissedForCancel, presentRichTextPremiumToast)
 }
 
 func presentChatForwardOptions(selfController: ChatControllerImpl, sourceView: UIView) {
@@ -401,6 +478,9 @@ private func generateChatReplyOptionItems(selfController: ChatControllerImpl, ch
         }
         
         var canReplyInAnotherChat = true
+        if replySubject.messageId.namespace == Namespaces.Message.EphemeralLocal {
+            canReplyInAnotherChat = false
+        }
         
         if let message = messages.first {
             if selfController.presentationInterfaceState.copyProtectionEnabled {
@@ -564,7 +644,7 @@ func moveReplyMessageToAnotherChat(selfController: ChatControllerImpl, replySubj
             var suggestedPeers: [EnginePeer] = []
             if let message = await selfController.context.engine.data.get(
                 TelegramEngine.EngineData.Item.Messages.Message(id: replySubject.messageId)
-            ).get(), case let .user(author) = message.author {
+            ).get(), case let .user(author) = message.author, author.id != selfController.context.account.peerId {
                 suggestedPeers.append(.user(author))
             }
             
@@ -623,14 +703,13 @@ func moveReplyMessageToAnotherChat(selfController: ChatControllerImpl, replySubj
                     return
                 }
                 let peerId = peer.id
-                //let accountPeerId = selfController.context.account.peerId
                 
                 var isPinnedMessages = false
                 if case .pinnedMessages = selfController.presentationInterfaceState.subject {
                     isPinnedMessages = true
                 }
                 
-                if case .peer(peerId) = selfController.chatLocation, selfController.parentController == nil, !isPinnedMessages {
+                if chatLocationMatchesDestination(selfController.chatLocation, peerId: peerId, threadId: threadId), selfController.parentController == nil, !isPinnedMessages {
                     selfController.updateChatPresentationInterfaceState(animated: false, interactive: true, { $0.updatedInterfaceState({ $0.withUpdatedReplyMessageSubject(replySubject).withoutSelectionState() }).updatedSearch(nil) })
                     selfController.updateItemNodesSearchTextHighlightStates()
                     selfController.searchResultsController = nil
@@ -651,7 +730,7 @@ func moveReplyToChat(selfController: ChatControllerImpl, peerId: EnginePeer.Id, 
     if let navigationController = selfController.effectiveNavigationController {
         for controller in navigationController.viewControllers {
             if let maybeChat = controller as? ChatControllerImpl {
-                if case .peer(peerId) = maybeChat.chatLocation {
+                if chatLocationMatchesDestination(maybeChat.chatLocation, peerId: peerId, threadId: threadId) {
                     var isChatPinnedMessages = false
                     if case .pinnedMessages = maybeChat.presentationInterfaceState.subject {
                         isChatPinnedMessages = true

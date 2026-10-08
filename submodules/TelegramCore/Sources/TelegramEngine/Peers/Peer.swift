@@ -118,20 +118,17 @@ public enum EnginePeer: Equatable {
         }
         
         public var flags: Flags
-        public var geoDistance: Int32?
         public var requestChatTitle: String?
         public var requestChatDate: Int32?
         public var requestChatIsChannel: Bool?
         
         public init(
             flags: Flags,
-            geoDistance: Int32?,
             requestChatTitle: String?,
             requestChatDate: Int32?,
             requestChatIsChannel: Bool?
         ) {
             self.flags = flags
-            self.geoDistance = geoDistance
             self.requestChatTitle = requestChatTitle
             self.requestChatDate = requestChatDate
             self.requestChatIsChannel = requestChatIsChannel
@@ -177,6 +174,7 @@ public enum EnginePeer: Equatable {
     case user(TelegramUser)
     case legacyGroup(TelegramGroup)
     case channel(TelegramChannel)
+    case community(TelegramCommunity)
     case secretChat(TelegramSecretChat)
 
     public static func ==(lhs: EnginePeer, rhs: EnginePeer) -> Bool {
@@ -195,6 +193,12 @@ public enum EnginePeer: Equatable {
             }
         case let .channel(channel):
             if case .channel(channel) = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .community(community):
+            if case .community(community) = rhs {
                 return true
             } else {
                 return false
@@ -363,7 +367,6 @@ public extension EnginePeer.StatusSettings {
     init(_ statusSettings: PeerStatusSettings) {
         self.init(
             flags: Flags(rawValue: statusSettings.flags.rawValue),
-            geoDistance: statusSettings.geoDistance,
             requestChatTitle: statusSettings.requestChatTitle,
             requestChatDate: statusSettings.requestChatDate,
             requestChatIsChannel: statusSettings.requestChatIsChannel
@@ -558,6 +561,30 @@ public extension EnginePeer {
     var profileBackgroundEmojiId: Int64? {
         return self._asPeer().profileBackgroundEmojiId
     }
+
+    var isCopyProtectionEnabled: Bool {
+        return self._asPeer().isCopyProtectionEnabled
+    }
+
+    var isMonoForum: Bool {
+        return self._asPeer().isMonoForum
+    }
+
+    var associatedPeerId: Id? {
+        return self._asPeer().associatedPeerId
+    }
+    
+    var containerPeerId: Id? {
+        return self._asPeer().containerPeerId
+    }
+
+    var hasCustomNameColor: Bool {
+        return self._asPeer().hasCustomNameColor
+    }
+
+    func hasSensitiveContent(platform: String) -> Bool {
+        return self._asPeer().hasSensitiveContent(platform: platform)
+    }
 }
 
 public extension EnginePeer {
@@ -569,6 +596,8 @@ public extension EnginePeer {
             self = .legacyGroup(group)
         case let channel as TelegramChannel:
             self = .channel(channel)
+        case let community as TelegramCommunity:
+            self = .community(community)
         case let secretChat as TelegramSecretChat:
             self = .secretChat(secretChat)
         default:
@@ -584,6 +613,8 @@ public extension EnginePeer {
             return legacyGroup
         case let .channel(channel):
             return channel
+        case let .community(community):
+            return community
         case let .secretChat(secretChat):
             return secretChat
         }

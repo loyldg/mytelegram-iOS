@@ -10,15 +10,18 @@ public struct Namespaces {
         public static let ScheduledLocal: Int32 = 4
         public static let QuickReplyCloud: Int32 = 5
         public static let QuickReplyLocal: Int32 = 6
+        public static let EphemeralLocal: Int32 = 7
         
         public static let allScheduled: Set<Int32> = Set([Namespaces.Message.ScheduledCloud, Namespaces.Message.ScheduledLocal])
         public static let allQuickReply: Set<Int32> = Set([Namespaces.Message.QuickReplyCloud, Namespaces.Message.QuickReplyLocal])
+        public static let allEphemeral: Set<Int32> = Set([Namespaces.Message.EphemeralLocal])
         public static let allNonRegular: Set<Int32> = Set([Namespaces.Message.ScheduledCloud, Namespaces.Message.ScheduledLocal, Namespaces.Message.QuickReplyCloud, Namespaces.Message.QuickReplyLocal])
         public static let allLocal: [Int32] = [
             Namespaces.Message.Local,
             Namespaces.Message.SecretIncoming,
             Namespaces.Message.ScheduledLocal,
-            Namespaces.Message.QuickReplyLocal
+            Namespaces.Message.QuickReplyLocal,
+            Namespaces.Message.EphemeralLocal
         ]
     }
     
@@ -97,6 +100,7 @@ public struct Namespaces {
         public static let CloudDisabledChannelStatusEmoji: Int32 = 28
         public static let CloudDefaultTagReactions: Int32 = 29
         public static let CloudUniqueStarGifts: Int32 = 30
+        public static let NewBotConnectionReviews: Int32 = 31
     }
     
     public struct CachedItemCollection {
@@ -149,6 +153,9 @@ public struct Namespaces {
         public static let cachedChatThemes: Int8 = 50
         public static let cachedLiveStorySendAsPeers: Int8 = 51
         public static let cachedGiftUpgradesAttributes: Int8 = 52
+        public static let cachedCloudAITextStyles: Int8 = 53
+        public static let cachedCommunityPeerLinkRequests: Int8 = 54
+        public static let richTextComposerDrafts: Int8 = 55
     }
     
     public struct UnorderedItemList {
@@ -327,6 +334,8 @@ private enum PreferencesKeyValues: Int32 {
     case globalPostSearchState = 46
     case savedMusicIds = 47
     case emojiGameInfo = 48
+    case webBrowserSettings = 49
+    case communitiesState = 50
 }
 
 public func applicationSpecificPreferencesKey(_ value: Int32) -> ValueBoxKey {
@@ -426,15 +435,21 @@ public struct PreferencesKeys {
         return key
     }()
     
-    public static let chatListFilters: ValueBoxKey = {
+    public static let webBrowserSettings: ValueBoxKey = {
         let key = ValueBoxKey(length: 4)
-        key.setInt32(0, value: PreferencesKeyValues.chatListFilters.rawValue)
+        key.setInt32(0, value: PreferencesKeyValues.webBrowserSettings.rawValue)
         return key
     }()
     
-    public static let peersNearby: ValueBoxKey = {
+    public static let communitiesState: ValueBoxKey = {
         let key = ValueBoxKey(length: 4)
-        key.setInt32(0, value: PreferencesKeyValues.peersNearby.rawValue)
+        key.setInt32(0, value: PreferencesKeyValues.communitiesState.rawValue)
+        return key
+    }()
+
+    public static let chatListFilters: ValueBoxKey = {
+        let key = ValueBoxKey(length: 4)
+        key.setInt32(0, value: PreferencesKeyValues.chatListFilters.rawValue)
         return key
     }()
     

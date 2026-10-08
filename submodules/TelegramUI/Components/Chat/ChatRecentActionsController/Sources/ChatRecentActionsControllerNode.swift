@@ -2,7 +2,6 @@ import Foundation
 import UIKit
 import AsyncDisplayKit
 import TelegramCore
-import Postbox
 import SwiftSignalKit
 import Display
 import TelegramPresentationData
@@ -30,6 +29,8 @@ import ChatControllerInteraction
 import ChatPresentationInterfaceState
 import ChatMessageItemView
 import ChatLoadingNode
+import GlassBackgroundComponent
+import ComponentFlow
 
 private final class ChatRecentActionsListOpaqueState {
     let entries: [ChatRecentActionsEntry]
@@ -41,15 +42,177 @@ private final class ChatRecentActionsListOpaqueState {
     }
 }
 
+private final class RecentActionsGlassButtonView: UIView {
+    private struct Params: Equatable {
+        let theme: PresentationTheme
+        let preferClearGlass: Bool
+        let size: CGSize
+
+        static func ==(lhs: Params, rhs: Params) -> Bool {
+            if lhs.theme !== rhs.theme {
+                return false
+            }
+            if lhs.preferClearGlass != rhs.preferClearGlass {
+                return false
+            }
+            if lhs.size != rhs.size {
+                return false
+            }
+            return true
+        }
+    }
+
+    private let backgroundView: GlassBackgroundView
+    let button: HighlightTrackingButton
+    private let iconView: GlassBackgroundView.ContentImageView
+
+    private var params: Params?
+
+    var icon: String? {
+        didSet {
+            if self.icon == oldValue {
+                return
+            }
+            if let icon = self.icon {
+                self.iconView.image = UIImage(bundleImageName: icon)?.withRenderingMode(.alwaysTemplate)
+            } else {
+                self.iconView.image = nil
+            }
+            if let params = self.params {
+                self.updateImpl(params: params, transition: .immediate)
+            }
+        }
+    }
+
+    override init(frame: CGRect) {
+        self.backgroundView = GlassBackgroundView()
+        self.button = HighlightTrackingButton()
+        self.iconView = GlassBackgroundView.ContentImageView()
+
+        super.init(frame: frame)
+
+        self.backgroundView.contentView.addSubview(self.iconView)
+        self.backgroundView.contentView.addSubview(self.button)
+        self.addSubview(self.backgroundView)
+
+        self.isAccessibilityElement = true
+        self.accessibilityTraits = .button
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func accessibilityActivate() -> Bool {
+        self.button.sendActions(for: .touchUpInside)
+        return true
+    }
+
+    func update(theme: PresentationTheme, preferClearGlass: Bool, size: CGSize, transition: ComponentTransition) {
+        let params = Params(theme: theme, preferClearGlass: preferClearGlass, size: size)
+        if self.params != params {
+            self.params = params
+            self.iconView.tintColor = theme.chat.inputPanel.panelControlColor
+            self.updateImpl(params: params, transition: transition)
+        }
+    }
+
+    private func updateImpl(params: Params, transition: ComponentTransition) {
+        if let image = self.iconView.image {
+            transition.setFrame(view: self.iconView, frame: image.size.centered(in: CGRect(origin: CGPoint(), size: params.size)))
+        }
+
+        transition.setFrame(view: self.button, frame: CGRect(origin: CGPoint(), size: params.size))
+        transition.setFrame(view: self.backgroundView, frame: CGRect(origin: CGPoint(), size: params.size))
+        self.backgroundView.update(size: params.size, cornerRadius: min(params.size.width, params.size.height) * 0.5, isDark: params.theme.overallDarkAppearance, tintColor: .init(kind: params.preferClearGlass ? .clear : .panel), isInteractive: true, transition: transition)
+    }
+}
+
+private final class RecentActionsGlassTextButtonView: UIView {
+    private struct Params: Equatable {
+        let theme: PresentationTheme
+        let preferClearGlass: Bool
+        let size: CGSize
+        let title: String
+
+        static func ==(lhs: Params, rhs: Params) -> Bool {
+            if lhs.theme !== rhs.theme {
+                return false
+            }
+            if lhs.preferClearGlass != rhs.preferClearGlass {
+                return false
+            }
+            if lhs.size != rhs.size {
+                return false
+            }
+            if lhs.title != rhs.title {
+                return false
+            }
+            return true
+        }
+    }
+
+    private let backgroundView: GlassBackgroundView
+    let button: HighlightTrackingButton
+    private let titleLabel: UILabel
+
+    private var params: Params?
+
+    override init(frame: CGRect) {
+        self.backgroundView = GlassBackgroundView()
+        self.button = HighlightTrackingButton()
+        self.titleLabel = UILabel()
+
+        super.init(frame: frame)
+
+        self.titleLabel.font = Font.regular(17.0)
+        self.titleLabel.textAlignment = .center
+        self.backgroundView.contentView.addSubview(self.titleLabel)
+        self.backgroundView.contentView.addSubview(self.button)
+        self.addSubview(self.backgroundView)
+
+        self.isAccessibilityElement = true
+        self.accessibilityTraits = .button
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func accessibilityActivate() -> Bool {
+        self.button.sendActions(for: .touchUpInside)
+        return true
+    }
+
+    func update(theme: PresentationTheme, preferClearGlass: Bool, title: String, size: CGSize, transition: ComponentTransition) {
+        let params = Params(theme: theme, preferClearGlass: preferClearGlass, size: size, title: title)
+        if self.params != params {
+            self.params = params
+            self.titleLabel.text = title
+            self.titleLabel.textColor = theme.chat.inputPanel.panelControlColor
+            self.accessibilityLabel = title
+            self.updateImpl(params: params, transition: transition)
+        }
+    }
+
+    private func updateImpl(params: Params, transition: ComponentTransition) {
+        transition.setFrame(view: self.titleLabel, frame: CGRect(origin: CGPoint(x: 0.0, y: -1.0), size: params.size))
+        transition.setFrame(view: self.button, frame: CGRect(origin: CGPoint(), size: params.size))
+        transition.setFrame(view: self.backgroundView, frame: CGRect(origin: CGPoint(), size: params.size))
+        self.backgroundView.update(size: params.size, cornerRadius: min(params.size.width, params.size.height) * 0.5, isDark: params.theme.overallDarkAppearance, tintColor: .init(kind: params.preferClearGlass ? .clear : .panel), isInteractive: true, transition: transition)
+    }
+}
+
 final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
     private let context: AccountContext
-    private let peer: Peer
+    private let peer: EngineRawPeer
     private var presentationData: PresentationData
     
     private let pushController: (ViewController) -> Void
     private let presentController: (ViewController, PresentationContextType,  Any?) -> Void
     private let getNavigationController: () -> NavigationController?
     var isEmptyUpdated: (Bool) -> Void = { _ in }
+    var contentStatsUpdated: () -> Void = { }
     
     private var controllerInteraction: ChatControllerInteraction!
     
@@ -65,10 +228,10 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
     private var visibleAreaInset = UIEdgeInsets()
     
     private let backgroundNode: WallpaperBackgroundNode
-    private let panelBackgroundNode: NavigationBackgroundNode
-    private let panelSeparatorNode: ASDisplayNode
-    private let panelButtonNode: HighlightableButtonNode
-    private let panelInfoButtonNode: HighlightableButtonNode
+    private var bottomBackgroundEdgeEffectNode: WallpaperEdgeEffectNode?
+    private let panelButtonNode: RecentActionsGlassTextButtonView
+    private let panelInfoButtonNode: RecentActionsGlassButtonView
+    private var preferredGlassType: ChatPresentationInterfaceState.GlassType = .default
     
     fileprivate let listNode: ListView
     private let loadingNode: ChatLoadingNode
@@ -95,20 +258,20 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
     private let eventLogContext: ChannelAdminEventLogContext
     
     private var enqueuedTransitions: [(ChatRecentActionsHistoryTransition, Bool)] = []
-    private var searchResultsState: (String, [MessageIndex])?
+    private var searchResultsState: (String, [EngineMessage.Index])?
     
     private var historyDisposable: Disposable?
     private let resolvePeerByNameDisposable = MetaDisposable()
     private var adminsDisposable: Disposable?
     private var adminsState: ChannelMemberListState?
-    private let banDisposables = DisposableDict<PeerId>()
-    private let reportFalsePositiveDisposables = DisposableDict<MessageId>()
+    private let banDisposables = DisposableDict<EnginePeer.Id>()
+    private let reportFalsePositiveDisposables = DisposableDict<EngineMessage.Id>()
     
     private weak var antiSpamTooltipController: UndoOverlayController?
     
     private weak var controller: ChatRecentActionsController?
     
-    init(context: AccountContext, controller: ChatRecentActionsController, peer: Peer, presentationData: PresentationData, pushController: @escaping (ViewController) -> Void, presentController: @escaping (ViewController, PresentationContextType, Any?) -> Void, getNavigationController: @escaping () -> NavigationController?) {
+    init(context: AccountContext, controller: ChatRecentActionsController, peer: EngineRawPeer, presentationData: PresentationData, pushController: @escaping (ViewController) -> Void, presentController: @escaping (ViewController, PresentationContextType, Any?) -> Void, getNavigationController: @escaping () -> NavigationController?) {
         self.context = context
         self.controller = controller
         self.peer = peer
@@ -122,12 +285,11 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
         self.backgroundNode = createWallpaperBackgroundNode(context: context, forChatDisplay: true)
         self.backgroundNode.isUserInteractionEnabled = false
         
-        self.panelBackgroundNode = NavigationBackgroundNode(color: self.presentationData.theme.chat.inputPanel.panelBackgroundColor)
-        self.panelSeparatorNode = ASDisplayNode()
-        self.panelSeparatorNode.backgroundColor = self.presentationData.theme.chat.inputPanel.panelSeparatorColor
-        self.panelButtonNode = HighlightableButtonNode()
-        self.panelButtonNode.setTitle(self.presentationData.strings.Channel_AdminLog_Settings, with: Font.regular(17.0), with: self.presentationData.theme.chat.inputPanel.panelControlAccentColor, for: [])
-        self.panelInfoButtonNode = HighlightableButtonNode()
+        self.panelButtonNode = RecentActionsGlassTextButtonView()
+        self.panelButtonNode.accessibilityLabel = self.presentationData.strings.Channel_AdminLog_Settings
+        self.panelInfoButtonNode = RecentActionsGlassButtonView()
+        self.panelInfoButtonNode.icon = "Chat/Recent Actions/Info"
+        self.panelInfoButtonNode.accessibilityLabel = self.presentationData.strings.Channel_AdminLog_InfoPanelAlertTitle
         
         self.listNode = ListViewImpl()
         self.listNode.transform = CATransform3DMakeRotation(CGFloat(Double.pi), 0.0, 0.0, 1.0)
@@ -150,15 +312,17 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
         self.addSubnode(self.listNode)
         self.addSubnode(self.loadingNode)
         self.addSubnode(self.emptyNode)
-        self.addSubnode(self.panelBackgroundNode)
-        self.addSubnode(self.panelSeparatorNode)
-        self.addSubnode(self.panelButtonNode)
-        self.addSubnode(self.panelInfoButtonNode)
-        
-        self.panelButtonNode.addTarget(self, action: #selector(self.settingsButtonPressed), forControlEvents: .touchUpInside)
-        self.panelInfoButtonNode.addTarget(self, action: #selector(self.infoButtonPressed), forControlEvents: .touchUpInside)
-        
-        let (adminsDisposable, _) = self.context.peerChannelMemberCategoriesContextsManager.admins(engine: self.context.engine, postbox: self.context.account.postbox, network: self.context.account.network, accountPeerId: context.account.peerId, peerId: self.peer.id, searchQuery: nil, updated: { [weak self] state in
+        self.view.addSubview(self.panelButtonNode)
+        self.view.addSubview(self.panelInfoButtonNode)
+
+        self.panelButtonNode.button.addTarget(self, action: #selector(self.settingsButtonPressed), for: .touchUpInside)
+        self.panelInfoButtonNode.button.addTarget(self, action: #selector(self.infoButtonPressed), for: .touchUpInside)
+
+        self.backgroundNode.contentStatsUpdated = { [weak self] in
+            self?.contentStatsUpdated()
+        }
+
+        let (adminsDisposable, _) = self.context.peerChannelMemberCategoriesContextsManager.admins(engine: self.context.engine, accountPeerId: context.account.peerId, peerId: self.peer.id, searchQuery: nil, updated: { [weak self] state in
             self?.adminsState = state
         })
         self.adminsDisposable = adminsDisposable
@@ -270,7 +434,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
                     if let strongSelf = self {
                         strongSelf.temporaryHiddenGalleryMediaDisposable.set((signal |> deliverOnMainQueue).startStrict(next: { messageId in
                             if let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction {
-                                var messageIdAndMedia: [MessageId: [Media]] = [:]
+                                var messageIdAndMedia: [EngineMessage.Id: [EngineRawMedia]] = [:]
                                 
                                 if let messageId = messageId {
                                     messageIdAndMedia[messageId] = [media]
@@ -314,7 +478,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
             if let context = self?.context, let navigationController = self?.getNavigationController() {
                 let _ = context.sharedContext.navigateToForumThread(context: context, peerId: peerId, threadId: threadId, messageId: nil, navigationController: navigationController, activateInput: nil, scrollToEndIfExists: false, keepStack: .always, animated: true).startStandalone()
             }
-        }, tapMessage: nil, clickThroughMessage: { _, _ in }, toggleMessagesSelection: { _, _ in }, sendCurrentMessage: { _, _ in }, sendMessage: { _ in }, sendSticker: { _, _, _, _, _, _, _, _, _ in return false }, sendEmoji: { _, _, _ in }, sendGif: { _, _, _, _, _ in return false }, sendBotContextResultAsGif: { _, _, _, _, _, _ in return false
+        }, tapMessage: nil, clickThroughMessage: { _, _ in }, toggleMessagesSelection: { _, _ in }, sendCurrentMessage: { _, _ in }, sendMessage: { _, _ in }, sendSticker: { _, _, _, _, _, _, _, _, _ in return false }, sendEmoji: { _, _, _ in }, sendGif: { _, _, _, _, _ in return false }, sendBotContextResultAsGif: { _, _, _, _, _, _ in return false
         }, editGif: { _, _ in
         }, requestMessageActionCallback: { [weak self] message, _, _, _, _ in
             guard let self else {
@@ -327,7 +491,8 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
             }
         }, requestMessageActionUrlAuth: { _, _ in }, activateSwitchInline: { _, _, _ in }, openUrl: { [weak self] url in
             self?.openUrl(url.url, progress: url.progress)
-        }, shareCurrentLocation: {}, shareAccountContact: {}, sendBotCommand: { _, _ in }, openInstantPage: { [weak self] message, associatedData in
+        }, openExternalInstantPage: { _ in
+        }, shareCurrentLocation: { _ in }, shareAccountContact: { _ in }, sendBotCommand: { _, _ in }, openInstantPage: { [weak self] message, associatedData in
             if let strongSelf = self, let navigationController = strongSelf.getNavigationController() {
                 if let controller = strongSelf.context.sharedContext.makeInstantPageController(context: strongSelf.context, message: message, sourcePeerType: associatedData?.automaticDownloadPeerType) {
                     navigationController.pushViewController(controller)
@@ -344,7 +509,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
             guard let strongSelf = self else {
                 return
             }
-            let resolveSignal: Signal<Peer?, NoError>
+            let resolveSignal: Signal<EngineRawPeer?, NoError>
             if let peerName = peerName {
                 resolveSignal = strongSelf.context.engine.peers.resolvePeerByName(name: peerName, referrer: nil)
                 |> mapToSignal { result -> Signal<EnginePeer?, NoError> in
@@ -353,12 +518,19 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
                     }
                     return .single(result)
                 }
-                |> mapToSignal { peer -> Signal<Peer?, NoError> in
+                |> mapToSignal { peer -> Signal<EngineRawPeer?, NoError> in
                     return .single(peer?._asPeer())
                 }
             } else {
-                resolveSignal = context.account.postbox.loadedPeerWithId(strongSelf.peer.id)
-                |> map(Optional.init)
+                resolveSignal = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: strongSelf.peer.id))
+                |> mapToSignal { peer -> Signal<EnginePeer, NoError> in
+                    if let peer {
+                        return .single(peer)
+                    } else {
+                        return .never()
+                    }
+                }
+                |> map { Optional($0._asPeer()) }
             }
             strongSelf.resolvePeerByNameDisposable.set((resolveSignal
             |> deliverOnMainQueue).startStrict(next: { peer in
@@ -604,7 +776,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
         }, displaySwipeToReplyHint: {
         }, dismissReplyMarkupMessage: { _ in
         }, openMessagePollResults: { _, _ in
-        }, openPollCreation: { _ in
+        }, openPollCreation: { _, _ in
         }, openPollMedia: { _, _ in
         }, displayPollSolution: { _, _ in
         }, displayPsa: { _, _ in
@@ -646,10 +818,11 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
         }, sendGift: { _ in
         }, openUniqueGift: { _ in
         }, openMessageFeeException: {
-        }, requestMessageUpdate: { _, _ in   
+        }, requestMessageUpdate: { _, _, _ in   
         }, cancelInteractiveKeyboardGestures: {
         }, dismissTextInput: {
-        }, scrollToMessageId: { _ in
+        }, scrollToMessageId: { _, _ in
+        }, scrollToMessageIdWithAnchor: { _, _ in
         }, navigateToStory: { _, _ in
         }, attemptedNavigationToPrivateQuote: { _ in
         }, forceUpdateWarpContents: {
@@ -659,7 +832,10 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
         }, requestToggleTodoMessageItem: { _, _, _ in
         }, displayTodoToggleUnavailable: { _ in
         }, openStarsPurchase: { _ in
-        }, openRankInfo: { _, _, _ in }, openSetPeerAvatar: {}, automaticMediaDownloadSettings: self.automaticMediaDownloadSettings,
+        }, openRankInfo: { _, _, _ in
+        }, openSetPeerAvatar: {
+        }, displayPollRestrictedToast: { _ in
+        }, automaticMediaDownloadSettings: self.automaticMediaDownloadSettings,
         pollActionState: ChatInterfacePollActionState(), stickerSettings: ChatInterfaceStickerSettings(), presentationContext: ChatPresentationContext(context: context, backgroundNode: self.backgroundNode))
         self.controllerInteraction = controllerInteraction
         
@@ -718,10 +894,10 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
             
             let toggledDeletedMessageIds = previousExpandedDeletedMessages.symmetricDifference(expandedDeletedMessages)
             
-            var searchResultsState: (String, [MessageIndex])?
+            var searchResultsState: (String, [EngineMessage.Index])?
             if update.3, let query = self?.filter.query {
                 searchResultsState = (query, processedView.compactMap { entry in
-                    return entry.entry.event.action.messageId.flatMap { MessageIndex(id: $0, timestamp: entry.entry.event.date) }
+                    return entry.entry.event.action.messageId.flatMap { EngineMessage.Index(id: $0, timestamp: entry.entry.event.date) }
                 })
             } else {
                 searchResultsState = nil
@@ -742,7 +918,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
         let mediaManager = self.context.sharedContext.mediaManager
         self.galleryHiddenMesageAndMediaDisposable.set(mediaManager.galleryHiddenMediaManager.hiddenIds().startStrict(next: { [weak self] ids in
             if let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction {
-                var messageIdAndMedia: [MessageId: [Media]] = [:]
+                var messageIdAndMedia: [EngineMessage.Id: [EngineRawMedia]] = [:]
                 
                 for id in ids {
                     if case let .chat(accountId, messageId, media) = id, accountId == strongSelf.context.account.id {
@@ -780,44 +956,114 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
         
         self.backgroundNode.update(wallpaper: presentationData.chatWallpaper, animated: false)
         self.backgroundNode.updateBubbleTheme(bubbleTheme: presentationData.theme, bubbleCorners: presentationData.chatBubbleCorners)
-        
-        self.panelBackgroundNode.updateColor(color: presentationData.theme.chat.inputPanel.panelBackgroundColor, transition: .immediate)
-        self.panelSeparatorNode.backgroundColor = presentationData.theme.chat.inputPanel.panelSeparatorColor
-        self.panelButtonNode.setTitle(presentationData.strings.Channel_AdminLog_Settings, with: Font.regular(17.0), with: presentationData.theme.chat.inputPanel.panelControlAccentColor, for: [])
-        self.panelInfoButtonNode.setImage(generateTintedImage(image: UIImage(bundleImageName: "Chat/Recent Actions/Info"), color: presentationData.theme.chat.inputPanel.panelControlAccentColor), for: .normal)
+
+        self.panelButtonNode.accessibilityLabel = presentationData.strings.Channel_AdminLog_Settings
+        self.panelInfoButtonNode.accessibilityLabel = presentationData.strings.Channel_AdminLog_InfoPanelAlertTitle
+        self.updatePanelButtons(transition: .immediate)
     }
-    
+
+    var backgroundContentIsSaturated: Bool {
+        return self.backgroundNode.contentStats?.isSaturated == true
+    }
+
+    func updatePreferredGlassType(_ preferredGlassType: ChatPresentationInterfaceState.GlassType, transition: ContainedViewLayoutTransition) {
+        if self.preferredGlassType != preferredGlassType {
+            self.preferredGlassType = preferredGlassType
+            self.updatePanelButtons(transition: transition)
+        }
+    }
+
+    private func updatePanelButtons(transition: ContainedViewLayoutTransition) {
+        let componentTransition = ComponentTransition(transition)
+        let preferClearGlass = self.preferredGlassType == .clear
+        if !self.panelButtonNode.bounds.isEmpty {
+            self.panelButtonNode.update(theme: self.presentationData.theme, preferClearGlass: preferClearGlass, title: self.presentationData.strings.Channel_AdminLog_Settings, size: self.panelButtonNode.bounds.size, transition: componentTransition)
+        }
+        if !self.panelInfoButtonNode.bounds.isEmpty {
+            self.panelInfoButtonNode.update(theme: self.presentationData.theme, preferClearGlass: preferClearGlass, size: self.panelInfoButtonNode.bounds.size, transition: componentTransition)
+        }
+    }
+
     func containerLayoutUpdated(_ layout: ContainerViewLayout, navigationBarHeight: CGFloat, transition: ContainedViewLayoutTransition) {
         let isFirstLayout = self.containerLayout == nil
-        
+
         self.containerLayout = (layout, navigationBarHeight)
-        
+
         var insets = layout.insets(options: [.input])
         insets.top += navigationBarHeight
-        
+
         let cleanInsets = layout.insets(options: [])
-        
+
         transition.updateFrame(node: self.backgroundNode, frame: CGRect(origin: CGPoint(), size: layout.size))
         self.backgroundNode.updateLayout(size: self.backgroundNode.bounds.size, displayMode: .aspectFill, transition: transition)
-        
-        let intrinsicPanelHeight: CGFloat = 47.0
-        var panelHeight = intrinsicPanelHeight + cleanInsets.bottom
+
+        let intrinsicPanelHeight: CGFloat = 40.0
+        var panelHeight = intrinsicPanelHeight + cleanInsets.bottom + 8.0
         var panelOffset: CGFloat = panelHeight
         if insets.bottom > cleanInsets.bottom {
             panelHeight = intrinsicPanelHeight
             panelOffset = insets.bottom + panelHeight
         }
-        transition.updateFrame(node: self.panelBackgroundNode, frame: CGRect(origin: CGPoint(x: 0.0, y: layout.size.height - panelOffset), size: CGSize(width: layout.size.width, height: panelHeight)))
-        self.panelBackgroundNode.update(size: self.panelBackgroundNode.bounds.size, transition: transition)
-        transition.updateFrame(node: self.panelSeparatorNode, frame: CGRect(origin: CGPoint(x: 0.0, y: layout.size.height - panelOffset), size: CGSize(width: layout.size.width, height: UIScreenPixel)))
-        
-        let infoButtonSize = CGSize(width: 56.0, height: intrinsicPanelHeight)
-        transition.updateFrame(node: self.panelButtonNode, frame: CGRect(origin: CGPoint(x: insets.left + infoButtonSize.width, y: layout.size.height - panelOffset), size: CGSize(width: layout.size.width - insets.left - insets.right - infoButtonSize.width * 2.0, height: intrinsicPanelHeight)))
-        
-        transition.updateFrame(node: self.panelInfoButtonNode, frame: CGRect(origin: CGPoint(x: layout.size.width - insets.right - infoButtonSize.width, y: layout.size.height - panelOffset), size: infoButtonSize))
-        
+
+        let edgeEffectAlpha: CGFloat
+        if case .image = self.presentationData.chatWallpaper {
+            edgeEffectAlpha = 0.7
+        } else {
+            edgeEffectAlpha = self.presentationData.chatWallpaper.singleColor != nil ? 0.85 : 0.75
+        }
+
+        let bottomBackgroundEdgeEffectNode: WallpaperEdgeEffectNode?
+        if let current = self.bottomBackgroundEdgeEffectNode {
+            bottomBackgroundEdgeEffectNode = current
+        } else if let value = self.backgroundNode.makeEdgeEffectNode() {
+            bottomBackgroundEdgeEffectNode = value
+            self.bottomBackgroundEdgeEffectNode = value
+            value.isUserInteractionEnabled = false
+            self.insertSubnode(value, aboveSubnode: self.listNode)
+        } else {
+            bottomBackgroundEdgeEffectNode = nil
+        }
+        if let bottomBackgroundEdgeEffectNode {
+            var blurFrame = CGRect(origin: CGPoint(x: 0.0, y: layout.size.height - panelOffset - 20.0), size: CGSize(width: layout.size.width, height: panelOffset + 20.0))
+            blurFrame.size.height = max(100.0, blurFrame.height)
+            transition.updateFrame(node: bottomBackgroundEdgeEffectNode, frame: blurFrame)
+            bottomBackgroundEdgeEffectNode.update(
+                rect: blurFrame,
+                edge: WallpaperEdgeEffectEdge(edge: .bottom, size: min(60.0, blurFrame.height)),
+                alpha: edgeEffectAlpha,
+                blur: false,
+                containerSize: layout.size,
+                transition: transition
+            )
+        }
+
+        var width = layout.size.width
+        if layout.additionalInsets.right > 0.0 {
+            width -= layout.additionalInsets.right
+        }
+
+        var leftInset = layout.safeInsets.left + 8.0
+        var rightInset = layout.safeInsets.right + 8.0
+        if cleanInsets.bottom <= 32.0 && layout.deviceMetrics.screenCornerRadius > 0.0 {
+            leftInset += 18.0
+            rightInset += 18.0
+        }
+
+        let buttonSize = CGSize(width: 40.0, height: 40.0)
+        let panelButtonTitle = self.presentationData.strings.Channel_AdminLog_Settings
+        let panelButtonTitleSize = (panelButtonTitle as NSString).size(withAttributes: [NSAttributedString.Key.font: Font.regular(17.0)])
+        let maxPanelButtonWidth = max(80.0, min(width - leftInset * 2.0, width - rightInset * 2.0 - buttonSize.width * 2.0 - 24.0))
+        let panelButtonWidth = min(max(120.0, ceil(panelButtonTitleSize.width) + 40.0), maxPanelButtonWidth)
+        let panelButtonFrame = CGRect(origin: CGPoint(x: floor((width - panelButtonWidth) * 0.5), y: layout.size.height - panelOffset), size: CGSize(width: panelButtonWidth, height: intrinsicPanelHeight))
+        transition.updateFrame(view: self.panelButtonNode, frame: panelButtonFrame)
+        self.panelButtonNode.update(theme: self.presentationData.theme, preferClearGlass: self.preferredGlassType == .clear, title: panelButtonTitle, size: panelButtonFrame.size, transition: ComponentTransition(transition))
+
+        let infoButtonFrame = CGRect(origin: CGPoint(x: width - rightInset - buttonSize.width, y: layout.size.height - panelOffset), size: buttonSize)
+        transition.updateFrame(view: self.panelInfoButtonNode, frame: infoButtonFrame)
+        self.panelInfoButtonNode.update(theme: self.presentationData.theme, preferClearGlass: self.preferredGlassType == .clear, size: infoButtonFrame.size, transition: ComponentTransition(transition))
+
         self.visibleAreaInset = UIEdgeInsets(top: 0.0, left: 0.0, bottom: panelHeight, right: 0.0)
-        
+
         transition.updateBounds(node: self.listNode, bounds: CGRect(origin: CGPoint(), size: layout.size))
         transition.updatePosition(node: self.listNode, position: CGRect(origin: CGPoint(), size: layout.size).center)
         
@@ -956,13 +1202,13 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
     
     func updateItemNodesSearchTextHighlightStates() {
         var searchString: String?
-        var resultsMessageIndices: [MessageIndex]? = nil
+        var resultsMessageIndices: [EngineMessage.Index]? = nil
         if let (query, indices) = self.searchResultsState {
             searchString = query
             resultsMessageIndices = indices
         }
         if searchString != self.controllerInteraction?.searchTextHighightState?.0 || resultsMessageIndices != self.controllerInteraction?.searchTextHighightState?.1 {
-            var searchTextHighightState: (String, [MessageIndex])?
+            var searchTextHighightState: (String, [EngineMessage.Index])?
             if let searchString = searchString, let resultsMessageIndices = resultsMessageIndices {
                 searchTextHighightState = (searchString, resultsMessageIndices)
             }
@@ -975,7 +1221,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
         }
     }
     
-    func updateFilter(events: AdminLogEventsFlags, adminPeerIds: [PeerId]?) {
+    func updateFilter(events: AdminLogEventsFlags, adminPeerIds: [EnginePeer.Id]?) {
         self.filter = self.filter.withEvents(events).withAdminPeerIds(adminPeerIds)
         self.eventLogContext.setFilter(self.filter)
     }
@@ -995,13 +1241,13 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
                 return false
             }), .window(.root), nil)
         } else {
-            let peerSignal: Signal<Peer?, NoError> = .single(peer._asPeer())
+            let peerSignal: Signal<EngineRawPeer?, NoError> = .single(peer._asPeer())
             self.navigationActionDisposable.set((peerSignal |> take(1) |> deliverOnMainQueue).startStrict(next: { [weak self] peer in
                 if let strongSelf = self, let peer = peer {
                     if peer is TelegramChannel, let navigationController = strongSelf.getNavigationController() {
                         strongSelf.context.sharedContext.navigateToChatController(NavigateToChatControllerParams(navigationController: navigationController, context: strongSelf.context, chatLocation: .peer(EnginePeer(peer)), peekData: peekData, animated: true))
                     } else {
-                        if let infoController = strongSelf.context.sharedContext.makePeerInfoController(context: strongSelf.context, updatedPresentationData: nil, peer: peer, mode: .generic, avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
+                        if let infoController = strongSelf.context.sharedContext.makePeerInfoController(context: strongSelf.context, updatedPresentationData: nil, peer: EnginePeer(peer), mode: .generic, avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
                             strongSelf.pushController(infoController)
                         }
                     }
@@ -1021,7 +1267,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
         |> deliverOnMainQueue).startStrict(next: { [weak self] peer in
             if let strongSelf = self {
                 if let peer = peer {
-                    if let infoController = strongSelf.context.sharedContext.makePeerInfoController(context: strongSelf.context, updatedPresentationData: nil, peer: peer._asPeer(), mode: .generic, avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
+                    if let infoController = strongSelf.context.sharedContext.makePeerInfoController(context: strongSelf.context, updatedPresentationData: nil, peer: peer, mode: .generic, avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
                         strongSelf.pushController(infoController)
                     }
                 }
@@ -1029,7 +1275,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
         }))
     }
     
-    private func openMessageContextMenu(message: Message, selectAll: Bool, node: ASDisplayNode, frame: CGRect, recognizer: TapLongTapOrDoubleTapGestureRecognizer? = nil, gesture: ContextGesture? = nil, location: CGPoint? = nil) {
+    private func openMessageContextMenu(message: EngineRawMessage, selectAll: Bool, node: ASDisplayNode, frame: CGRect, recognizer: TapLongTapOrDoubleTapGestureRecognizer? = nil, gesture: ContextGesture? = nil, location: CGPoint? = nil) {
         guard let controller = self.controller else {
             return
         }
@@ -1301,7 +1547,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
                                         if let photoRepresentation = invite.photoRepresentation {
                                             photo.append(photoRepresentation)
                                         }
-                                        let channel = TelegramChannel(id: PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(0)), accessHash: .genericPublic(0), title: invite.title, username: nil, photo: photo, creationDate: 0, version: 0, participationStatus: .left, info: .broadcast(TelegramChannelBroadcastInfo(flags: [])), flags: [], restrictionInfo: nil, adminRights: nil, bannedRights: nil, defaultBannedRights: nil, usernames: [], storiesHidden: nil, nameColor: invite.nameColor, backgroundEmojiId: nil, profileColor: nil, profileBackgroundEmojiId: nil, emojiStatus: nil, approximateBoostLevel: nil, subscriptionUntilDate: nil, verificationIconFileId: nil, sendPaidMessageStars: nil, linkedMonoforumId: nil)
+                                        let channel = TelegramChannel(id: EnginePeer.Id(namespace: Namespaces.Peer.CloudChannel, id: EnginePeer.Id.Id._internalFromInt64Value(0)), accessHash: .genericPublic(0), title: invite.title, username: nil, photo: photo, creationDate: 0, version: 0, participationStatus: .left, info: .broadcast(TelegramChannelBroadcastInfo(flags: [])), flags: [], restrictionInfo: nil, adminRights: nil, bannedRights: nil, defaultBannedRights: nil, usernames: [], storiesHidden: nil, nameColor: invite.nameColor, backgroundEmojiId: nil, profileColor: nil, profileBackgroundEmojiId: nil, emojiStatus: nil, approximateBoostLevel: nil, subscriptionUntilDate: nil, verificationIconFileId: nil, sendPaidMessageStars: nil, linkedMonoforumId: nil)
                                         let invoice = TelegramMediaInvoice(title: "", description: "", photo: nil, receiptMessageId: nil, currency: "XTR", totalAmount: subscriptionPricing.amount.value, startParam: "", extendedMedia: nil, subscriptionPeriod: nil, flags: [], version: 0)
                                         
                                         inputData.set(.single(BotCheckoutController.InputData(
@@ -1472,7 +1718,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
                         break
                     case .sendGift:
                         break
-                    case .chats, .contacts, .compose, .postStory, .settings, .unknownDeepLink, .oauth, .createBot:
+                    case .chats, .contacts, .compose, .postStory, .settings, .unknownDeepLink, .oauth, .createBot, .textStyle:
                         break
                 }
             }
@@ -1480,7 +1726,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
     }
     
     private func presentAutoremoveSetup() {
-        /*let controller = ChatTimerScreen(context: self.context, updatedPresentationData: self.controller?.updatedPresentationData, peerId: self.peer.id, style: .default, mode: .autoremove, currentTime: currentValue, dismissByTapOutside: true, completion: { [weak self] value in
+        /*let controller = ChatTimerScreen(context: self.context, updatedPresentationData: self.controller?.updatedPresentationData, peerId: self.peer.id, style: .default, mode: .autoremove, currentTime: currentValue, completion: { [weak self] value in
             guard let strongSelf = self else {
                 return
             }
@@ -1537,14 +1783,14 @@ final class ChatRecentActionsMessageContextExtractedContentSource: ContextExtrac
     let blurBackground: Bool = true
     
     private weak var controllerNode: ChatRecentActionsControllerNode?
-    private let message: Message
+    private let message: EngineRawMessage
     private let selectAll: Bool
     
     var shouldBeDismissed: Signal<Bool, NoError> {
         return .single(false)
     }
     
-    init(controllerNode: ChatRecentActionsControllerNode, message: Message, selectAll: Bool) {
+    init(controllerNode: ChatRecentActionsControllerNode, message: EngineRawMessage, selectAll: Bool) {
         self.controllerNode = controllerNode
         self.message = message
         self.selectAll = selectAll
@@ -1606,7 +1852,7 @@ final class ChatMessageContextLocationContentSource: ContextLocationContentSourc
 }
 
 extension AdminLogEventAction {
-    var messageId: MessageId? {
+    var messageId: EngineMessage.Id? {
         switch self {
         case let .editMessage(_, new):
             return new.id

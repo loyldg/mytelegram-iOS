@@ -64,18 +64,24 @@ private final class PendingUpdateMessageManagerImpl {
         }
     }
     
-    func add(messageId: MessageId, text: String, media: RequestEditMessageMedia, entities: TextEntitiesMessageAttribute?, inlineStickers: [MediaId: Media], webpagePreviewAttribute: WebpagePreviewMessageAttribute?, invertMediaAttribute: InvertMediaMessageAttribute?, disableUrlPreview: Bool) {
+    func add(messageId: MessageId, text: String, media: RequestEditMessageMedia, entities: TextEntitiesMessageAttribute?, richText: RichTextMessageAttribute?, inlineStickers: [MediaId: Media], webpagePreviewAttribute: WebpagePreviewMessageAttribute?, invertMediaAttribute: InvertMediaMessageAttribute?, disableUrlPreview: Bool) {
         if let context = self.contexts[messageId] {
             self.contexts.removeValue(forKey: messageId)
             context.disposable.dispose()
         }
         
         let disposable = MetaDisposable()
-        let context = PendingUpdateMessageContext(value: ChatUpdatingMessageMedia(text: text, entities: entities, disableUrlPreview: disableUrlPreview, media: media, invertMediaAttribute: invertMediaAttribute, progress: 0.0), disposable: disposable)
+        let context = PendingUpdateMessageContext(value: ChatUpdatingMessageMedia(text: text, entities: entities, disableUrlPreview: disableUrlPreview, media: media, invertMediaAttribute: invertMediaAttribute, richText: richText, progress: 0.0), disposable: disposable)
         self.contexts[messageId] = context
-        
+        // Publish the optimistic value immediately. Otherwise it only becomes visible on the first
+        // `.progress`/`.done` event from `requestEditMessage` — which, for a media-bearing rich edit,
+        // does not arrive until the inline-media upload finishes (the `uploadedRichMessage` resolver
+        // swallows progress and runs the upload before the `uploadedMedia` chain), leaving the pending
+        // edit invisible for the whole upload window.
+        self.updateValues()
+
         let queue = self.queue
-        disposable.set((requestEditMessage(accountPeerId: self.stateManager.accountPeerId, postbox: self.postbox, network: self.network, stateManager: self.stateManager, transformOutgoingMessageMedia: self.transformOutgoingMessageMedia, messageMediaPreuploadManager: self.messageMediaPreuploadManager, mediaReferenceRevalidationContext: self.mediaReferenceRevalidationContext, messageId: messageId, text: text, media: media, entities: entities, inlineStickers: inlineStickers, webpagePreviewAttribute: webpagePreviewAttribute, disableUrlPreview: disableUrlPreview, scheduleInfoAttribute: nil, invertMediaAttribute: invertMediaAttribute)
+        disposable.set((requestEditMessage(accountPeerId: self.stateManager.accountPeerId, postbox: self.postbox, network: self.network, stateManager: self.stateManager, transformOutgoingMessageMedia: self.transformOutgoingMessageMedia, messageMediaPreuploadManager: self.messageMediaPreuploadManager, mediaReferenceRevalidationContext: self.mediaReferenceRevalidationContext, messageId: messageId, text: text, media: media, entities: entities, richText: richText, inlineStickers: inlineStickers, webpagePreviewAttribute: webpagePreviewAttribute, disableUrlPreview: disableUrlPreview, scheduleInfoAttribute: nil, invertMediaAttribute: invertMediaAttribute)
         |> deliverOn(self.queue)).start(next: { [weak self, weak context] value in
             queue.async {
                 guard let strongSelf = self, let initialContext = context else {
@@ -163,9 +169,9 @@ public final class PendingUpdateMessageManager {
         })
     }
     
-    public func add(messageId: MessageId, text: String, media: RequestEditMessageMedia, entities: TextEntitiesMessageAttribute?, inlineStickers: [MediaId: Media], webpagePreviewAttribute: WebpagePreviewMessageAttribute? = nil, invertMediaAttribute: InvertMediaMessageAttribute? = nil, disableUrlPreview: Bool = false) {
+    public func add(messageId: MessageId, text: String, media: RequestEditMessageMedia, entities: TextEntitiesMessageAttribute?, richText: RichTextMessageAttribute?, inlineStickers: [MediaId: Media], webpagePreviewAttribute: WebpagePreviewMessageAttribute? = nil, invertMediaAttribute: InvertMediaMessageAttribute? = nil, disableUrlPreview: Bool = false) {
         self.impl.with { impl in
-            impl.add(messageId: messageId, text: text, media: media, entities: entities, inlineStickers: inlineStickers, webpagePreviewAttribute: webpagePreviewAttribute, invertMediaAttribute: invertMediaAttribute, disableUrlPreview: disableUrlPreview)
+            impl.add(messageId: messageId, text: text, media: media, entities: entities, richText: richText, inlineStickers: inlineStickers, webpagePreviewAttribute: webpagePreviewAttribute, invertMediaAttribute: invertMediaAttribute, disableUrlPreview: disableUrlPreview)
         }
     }
     

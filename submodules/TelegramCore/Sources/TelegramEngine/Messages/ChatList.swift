@@ -427,6 +427,38 @@ public final class EngineChatList: Equatable {
     }
 }
 
+public extension EngineChatList.Item {
+    func withUpdatedCommunitySummary(messages: [EngineMessage], readCounters: EnginePeerReadCounters?) -> EngineChatList.Item {
+        let updatedReadCounters = readCounters.map { readCounters -> EnginePeerReadCounters in
+            return EnginePeerReadCounters(state: readCounters._asReadCounters(), isMuted: self.isMuted)
+        }
+
+        return EngineChatList.Item(
+            id: self.id,
+            index: self.index,
+            messages: messages,
+            readCounters: updatedReadCounters,
+            isMuted: self.isMuted,
+            draft: self.draft,
+            threadData: self.threadData,
+            renderedPeer: self.renderedPeer,
+            presence: self.presence,
+            hasUnseenMentions: self.hasUnseenMentions,
+            hasUnseenReactions: self.hasUnseenReactions,
+            hasUnseenPollVotes: self.hasUnseenPollVotes,
+            forumTopicData: self.forumTopicData,
+            topForumTopicItems: self.topForumTopicItems,
+            hasFailed: self.hasFailed,
+            isContact: self.isContact,
+            autoremoveTimeout: self.autoremoveTimeout,
+            storyStats: self.storyStats,
+            displayAsTopicList: self.displayAsTopicList,
+            isPremiumRequiredToMessage: self.isPremiumRequiredToMessage,
+            mediaDraftContentType: self.mediaDraftContentType
+        )
+    }
+}
+
 public extension EngineChatList.Group {
     init(_ group: PeerGroupId) {
         switch group {
@@ -474,8 +506,11 @@ public extension EngineChatList.RelativePosition {
     }
 }
 
-private func calculateIsPremiumRequiredToMessage(isPremium: Bool, targetPeer: Peer, cachedIsPremiumRequired: Bool) -> Bool {
+private func calculateIsPremiumRequiredToMessage(accountPeerId: PeerId?, isPremium: Bool, targetPeer: Peer, cachedIsPremiumRequired: Bool) -> Bool {
     if isPremium {
+        return false
+    }
+    if let accountPeerId, targetPeer.id == accountPeerId {
         return false
     }
     guard let targetPeer = targetPeer as? TelegramUser else {
@@ -488,7 +523,7 @@ private func calculateIsPremiumRequiredToMessage(isPremium: Bool, targetPeer: Pe
 }
 
 extension EngineChatList.Item {
-    convenience init?(_ entry: ChatListEntry, isPremium: Bool, displayAsTopicList: Bool) {
+    convenience init?(_ entry: ChatListEntry, accountPeerId: PeerId?, isPremium: Bool, displayAsTopicList: Bool) {
         switch entry {
         case let .MessageEntry(entryData):
             let index = entryData.index
@@ -507,7 +542,7 @@ extension EngineChatList.Item {
             
             var isPremiumRequiredToMessage = false
             if let targetPeer = renderedPeer.chatMainPeer, let extractedData = entryData.extractedCachedData?.base as? ExtractedChatListItemCachedData {
-                isPremiumRequiredToMessage = calculateIsPremiumRequiredToMessage(isPremium: isPremium, targetPeer: targetPeer, cachedIsPremiumRequired: extractedData.isPremiumRequiredToMessage)
+                isPremiumRequiredToMessage = calculateIsPremiumRequiredToMessage(accountPeerId: accountPeerId, isPremium: isPremium, targetPeer: targetPeer, cachedIsPremiumRequired: extractedData.isPremiumRequiredToMessage)
             }
             
             var draft: EngineChatList.Draft?
@@ -632,7 +667,7 @@ extension EngineChatList.AdditionalItem.PromoInfo {
 
 extension EngineChatList.AdditionalItem {
     convenience init?(_ entry: ChatListAdditionalItemEntry) {
-        guard let item = EngineChatList.Item(entry.entry, isPremium: false, displayAsTopicList: false) else {
+        guard let item = EngineChatList.Item(entry.entry, accountPeerId: nil, isPremium: false, displayAsTopicList: false) else {
             return nil
         }
         guard let promoInfo = (entry.info as? PromoChatListItem).flatMap(EngineChatList.AdditionalItem.PromoInfo.init) else {
@@ -657,7 +692,7 @@ public extension EngineChatList {
         loop: for entry in view.entries {
             switch entry {
             case .MessageEntry:
-                if let item = EngineChatList.Item(entry, isPremium: isPremium, displayAsTopicList: entry.index.messageIndex.id.peerId == accountPeerId ? displaySavedMessagesAsTopicList : false) {
+                if let item = EngineChatList.Item(entry, accountPeerId: accountPeerId, isPremium: isPremium, displayAsTopicList: entry.index.messageIndex.id.peerId == accountPeerId ? displaySavedMessagesAsTopicList : false) {
                     items.append(item)
                 }
             case .HoleEntry:

@@ -39,10 +39,6 @@ public enum WebpagePreviewWithProgressResult {
     case progress(Float)
 }
 
-public func normalizedWebpagePreviewUrl(url: String) -> String {
-    return url
-}
-
 public func webpagePreviewWithProgress(account: Account, urls: [String], webpageId: MediaId? = nil, forPeerId: PeerId? = nil) -> Signal<WebpagePreviewWithProgressResult, NoError> {
     return account.postbox.transaction { transaction -> Signal<WebpagePreviewWithProgressResult, NoError> in
         if let webpageId = webpageId, let webpage = transaction.getMedia(webpageId) as? TelegramMediaWebpage, let url = webpage.content.url {
@@ -131,7 +127,7 @@ public func webpagePreviewWithProgress(account: Account, urls: [String], webpage
                                     }
                                     
                                     if let imageProvider = metadata.imageProvider {
-                                        imageProvider.loadFileRepresentation(forTypeIdentifier: kUTTypeImage as String, completionHandler: { imageUrl, _ in
+                                        imageProvider.loadFileRepresentation(forTypeIdentifier: "public.image", completionHandler: { imageUrl, _ in
                                             guard let imageUrl, let imageData = try? Data(contentsOf: imageUrl) else {
                                                 completeWithImage(nil)
                                                 return

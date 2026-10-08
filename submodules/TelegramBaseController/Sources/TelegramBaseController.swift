@@ -4,7 +4,6 @@ import AsyncDisplayKit
 import Display
 import TelegramCore
 import SwiftSignalKit
-import Postbox
 import TelegramPresentationData
 import TelegramUIPreferences
 import UniversalMediaPlayer
@@ -14,7 +13,7 @@ import PresentationDataUtils
 import TelegramCallsUI
 import UndoUI
 
-private func presentLiveLocationController(context: AccountContext, peerId: PeerId, controller: ViewController) {
+private func presentLiveLocationController(context: AccountContext, peerId: EnginePeer.Id, controller: ViewController) {
     let presentImpl: (EngineMessage?) -> Void = { [weak controller] message in
         if let message = message, let strongController = controller {
             let _ = context.sharedContext.openChatMessage(OpenChatMessageParams(context: context, chatLocation: nil, chatFilterTag: nil, chatLocationContextHolder: nil, message: message._asMessage(), standalone: false, reverseMessageGalleryOrder: false, navigationController: strongController.navigationController as? NavigationController, modal: true, dismissInput: {
@@ -189,14 +188,21 @@ open class TelegramBaseController: ViewController, KeyShortcutResponder {
         })]
     }
     
-    open func joinGroupCall(peerId: PeerId, invite: String?, activeCall: EngineGroupCallDescription) {
+    open func joinGroupCall(peerId: EnginePeer.Id, invite: String?, activeCall: EngineGroupCallDescription) {
         let context = self.context
         let presentationData = self.context.sharedContext.currentPresentationData.with { $0 }
         
         self.view.endEditing(true)
         
         self.context.joinGroupCall(peerId: peerId, invite: invite, requestJoinAsPeerId: { completion in
-            let currentAccountPeer = context.account.postbox.loadedPeerWithId(context.account.peerId)
+            let currentAccountPeer = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
+            |> mapToSignal { peer -> Signal<EnginePeer, NoError> in
+                if let peer {
+                    return .single(peer)
+                } else {
+                    return .never()
+                }
+            }
             |> map { peer in
                 return [FoundPeer(peer: peer, subscribers: nil)]
             }
@@ -217,7 +223,7 @@ open class TelegramBaseController: ViewController, KeyShortcutResponder {
                     return
                 }
                 
-                let defaultJoinAsPeerId: PeerId? = callJoinAsPeerId
+                let defaultJoinAsPeerId: EnginePeer.Id? = callJoinAsPeerId
                                 
                 if peers.count == 1, let peer = peers.first {
                     completion(peer.peer.id)
@@ -233,10 +239,10 @@ open class TelegramBaseController: ViewController, KeyShortcutResponder {
                         var items: [ActionSheetItem] = []
                         var isGroup = false
                         for peer in peers {
-                            if peer.peer is TelegramGroup {
+                            if case .legacyGroup = peer.peer {
                                 isGroup = true
                                 break
-                            } else if let peer = peer.peer as? TelegramChannel, case .group = peer.info {
+                            } else if case let .channel(channel) = peer.peer, case .group = channel.info {
                                 isGroup = true
                                 break
                             }
@@ -248,14 +254,14 @@ open class TelegramBaseController: ViewController, KeyShortcutResponder {
                             if peer.peer.id.namespace == Namespaces.Peer.CloudUser {
                                 subtitle = presentationData.strings.VoiceChat_PersonalAccount
                             } else if let subscribers = peer.subscribers {
-                                if let peer = peer.peer as? TelegramChannel, case .broadcast = peer.info {
+                                if case let .channel(channel) = peer.peer, case .broadcast = channel.info {
                                     subtitle = strongSelf.presentationData.strings.Conversation_StatusSubscribers(subscribers)
                                 } else {
                                     subtitle = strongSelf.presentationData.strings.Conversation_StatusMembers(subscribers)
                                 }
                             }
                             
-                            items.append(VoiceChatPeerActionSheetItem(context: context, peer: EnginePeer(peer.peer), title: EnginePeer(peer.peer).displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder), subtitle: subtitle ?? "", action: {
+                            items.append(VoiceChatPeerActionSheetItem(context: context, peer: peer.peer, title: peer.peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder), subtitle: subtitle ?? "", action: {
                                 dismissAction()
                                 completion(peer.peer.id)
                             }))

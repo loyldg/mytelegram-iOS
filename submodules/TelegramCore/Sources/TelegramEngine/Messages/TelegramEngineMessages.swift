@@ -141,8 +141,11 @@ public extension TelegramEngine {
             return _internal_searchHashtagPosts(account: self.account, hashtag: hashtag, state: state, limit: limit)
         }
 
-        public func downloadMessage(messageId: MessageId) -> Signal<Message?, NoError> {
+        public func downloadMessage(messageId: EngineMessage.Id) -> Signal<EngineMessage?, NoError> {
             return _internal_downloadMessage(accountPeerId: self.account.peerId, postbox: self.account.postbox, network: self.account.network, messageId: messageId)
+            |> map { message -> EngineMessage? in
+                return message.flatMap(EngineMessage.init)
+            }
         }
 
         public func searchMessageIdByTimestamp(peerId: PeerId, threadId: Int64?, timestamp: Int32) -> Signal<MessageId?, NoError> {
@@ -165,6 +168,14 @@ public extension TelegramEngine {
                 _internal_deleteAllMessagesWithForwardAuthor(transaction: transaction, mediaBox: self.account.postbox.mediaBox, peerId: peerId, forwardAuthorId: forwardAuthorId, namespace: namespace)
             }
             |> ignoreValues
+        }
+        
+        public func deleteAllReactionsWithAuthor(peerId: EnginePeer.Id, authorId: EnginePeer.Id, aroundMessageId: EngineMessage.Id? = nil) -> Signal<Never, NoError> {
+            return _internal_deleteAllReactionsWithAuthor(account: self.account, peerId: peerId, authorId: authorId, aroundMessageId: aroundMessageId)
+        }
+        
+        public func deleteReaction(messageId: EngineMessage.Id, authorId: EnginePeer.Id) -> Signal<Never, NoError> {
+            return _internal_deleteReaction(account: self.account, messageId: messageId, authorId: authorId)
         }
 
         public func clearCallHistory(forEveryone: Bool) -> Signal<Never, ClearCallHistoryError> {
@@ -191,8 +202,8 @@ public extension TelegramEngine {
             return _internal_clearAuthorHistory(account: self.account, peerId: peerId, memberId: memberId)
         }
 
-        public func requestEditMessage(messageId: MessageId, text: String, media: RequestEditMessageMedia, entities: TextEntitiesMessageAttribute?, inlineStickers: [MediaId: Media], webpagePreviewAttribute: WebpagePreviewMessageAttribute? = nil, invertMediaAttribute: InvertMediaMessageAttribute? = nil, disableUrlPreview: Bool = false, scheduleInfoAttribute: OutgoingScheduleInfoMessageAttribute? = nil) -> Signal<RequestEditMessageResult, RequestEditMessageError> {
-            return _internal_requestEditMessage(account: self.account, messageId: messageId, text: text, media: media, entities: entities, inlineStickers: inlineStickers, webpagePreviewAttribute: webpagePreviewAttribute, disableUrlPreview: disableUrlPreview, scheduleInfoAttribute: scheduleInfoAttribute, invertMediaAttribute: invertMediaAttribute)
+        public func requestEditMessage(messageId: MessageId, text: String, media: RequestEditMessageMedia, entities: TextEntitiesMessageAttribute?, richText: RichTextMessageAttribute?, inlineStickers: [MediaId: Media], webpagePreviewAttribute: WebpagePreviewMessageAttribute? = nil, invertMediaAttribute: InvertMediaMessageAttribute? = nil, disableUrlPreview: Bool = false, scheduleInfoAttribute: OutgoingScheduleInfoMessageAttribute? = nil) -> Signal<RequestEditMessageResult, RequestEditMessageError> {
+            return _internal_requestEditMessage(account: self.account, messageId: messageId, text: text, media: media, entities: entities, richText: richText, inlineStickers: inlineStickers, webpagePreviewAttribute: webpagePreviewAttribute, disableUrlPreview: disableUrlPreview, scheduleInfoAttribute: scheduleInfoAttribute, invertMediaAttribute: invertMediaAttribute)
         }
 
         public func requestEditLiveLocation(messageId: MessageId, stop: Bool, coordinate: (latitude: Double, longitude: Double, accuracyRadius: Int32?)?, heading: Int32?, proximityNotificationRadius: Int32?, extendPeriod: Int32?) -> Signal<Void, NoError> {
@@ -206,6 +217,14 @@ public extension TelegramEngine {
 
         public func forwardGameWithScore(messageId: MessageId, to peerId: PeerId, threadId: Int64?, as senderPeerId: PeerId?) -> Signal<Void, NoError> {
             return _internal_forwardGameWithScore(account: self.account, messageId: messageId, to: peerId, threadId: threadId, as: senderPeerId)
+        }
+
+        public func sendBotGame(botPeerId: PeerId, game: String, to peerId: PeerId, threadId: Int64?) -> Signal<Void, SendBotGameError> {
+            return _internal_sendBotGame(account: self.account, botPeerId: botPeerId, game: game, to: peerId, threadId: threadId)
+        }
+
+        public func retryEphemeralOutgoingMessage(messageId: MessageId) -> Signal<MessageId?, NoError> {
+            return _internal_retryEphemeralOutgoingMessage(account: self.account, messageId: messageId)
         }
 
         public func requestUpdatePinnedMessage(peerId: PeerId, update: PinnedMessageUpdate) -> Signal<Void, UpdatePinnedMessageError> {
@@ -461,8 +480,11 @@ public extension TelegramEngine {
             return _internal_recentlyUsedHashtags(postbox: self.account.postbox)
         }
 
-        public func topPeerActiveLiveLocationMessages(peerId: PeerId) -> Signal<(Peer?, [Message]), NoError> {
+        public func topPeerActiveLiveLocationMessages(peerId: EnginePeer.Id) -> Signal<(EnginePeer?, [EngineMessage]), NoError> {
             return _internal_topPeerActiveLiveLocationMessages(viewTracker: self.account.viewTracker, accountPeerId: self.account.peerId, peerId: peerId)
+            |> map { peer, messages -> (EnginePeer?, [EngineMessage]) in
+                return (peer.flatMap(EnginePeer.init), messages.map(EngineMessage.init))
+            }
         }
 
         public func chatList(group: EngineChatList.Group, count: Int) -> Signal<EngineChatList, NoError> {
@@ -655,12 +677,57 @@ public extension TelegramEngine {
             }
         }
         
-        public func composeMessageWithAI(text: String, entities: [MessageTextEntity], proofread: Bool = false, translateToLang: String? = nil, changeTone: String? = nil, emojify: Bool = false) -> Signal<(String, [MessageTextEntity]), TranslationError> {
-            return _internal_composeMessageWithAI(network: self.account.network, text: text, entities: entities, proofread: proofread, translateToLang: translateToLang, changeTone: changeTone, emojify: emojify)
+        public func composeMessageWithAI(text: String, entities: [MessageTextEntity], proofread: Bool = false, translateToLang: String? = nil, changeStyle: TelegramComposeAIMessageMode.CloudStyle.Reference? = nil, emojify: Bool = false) -> Signal<(String, [MessageTextEntity]), TranslationError> {
+            return _internal_composeMessageWithAI(account: self.account, text: text, entities: entities, proofread: proofread, translateToLang: translateToLang, changeStyle: changeStyle, emojify: emojify)
+        }
+
+        public func composeRichMessageWithAI(instantPage: InstantPage?, proofread: Bool = false, translateToLang: String? = nil, changeStyle: TelegramComposeAIMessageMode.CloudStyle.Reference? = nil, customPrompt: String? = nil, emojify: Bool = false) -> Signal<InstantPage, TranslationError> {
+            return _internal_composeRichMessageWithAI(account: self.account, instantPage: instantPage, proofread: proofread, translateToLang: translateToLang, changeStyle: changeStyle, customPrompt: customPrompt, emojify: emojify)
+        }
+        
+        public func createAITextStyle(displayAuthor: Bool, emojiFileId: Int64, title: String, prompt: String) -> Signal<TelegramComposeAIMessageMode.CloudStyle, CreateAITextStyleError> {
+            return _internal_createAITextStyle(account: self.account, displayAuthor: displayAuthor, emojiFileId: emojiFileId, title: title, prompt: prompt)
+        }
+        
+        public func editAITextStyle(id: Int64, accessHash: Int64, displayAuthor: Bool, emojiFileId: Int64, title: String, prompt: String) -> Signal<TelegramComposeAIMessageMode.CloudStyle, EditAITextStyleError> {
+            return _internal_editAITextStyle(account: self.account, id: id, accessHash: accessHash, displayAuthor: displayAuthor, emojiFileId: emojiFileId, title: title, prompt: prompt)
+        }
+        
+        public func deleteAITextStyle(id: Int64, accessHash: Int64) -> Signal<Never, DeleteAITextStyleError> {
+            return _internal_deleteAITextStyle(account: self.account, id: id, accessHash: accessHash)
+        }
+
+        public func unsaveAITextStyle(id: Int64, accessHash: Int64) -> Signal<Never, DeleteAITextStyleError> {
+            return _internal_unsaveAITextStyle(account: self.account, id: id, accessHash: accessHash)
+        }
+
+        public func getAIComposeToneExample(slug: String, num: Int32) -> Signal<TelegramAIComposeToneExample?, NoError> {
+            return _internal_getAIComposeToneExample(network: self.account.network, slug: slug, num: num)
+        }
+
+        public func getAIComposeToneExample(reference: TelegramComposeAIMessageMode.CloudStyle.Reference, num: Int32) -> Signal<TelegramAIComposeToneExample?, NoError> {
+            return _internal_getAIComposeToneExample(network: self.account.network, tone: reference, num: num)
         }
 
         public func translate(texts: [(String, [MessageTextEntity])], toLang: String, tone: TranslationTone = .neutral) -> Signal<[(String, [MessageTextEntity])], TranslationError> {
             return _internal_translateTexts(network: self.account.network, texts: texts, toLang: toLang, tone: tone)
+        }
+
+        public func translateRichMessage(messageId: EngineMessage.Id, toLang: String, tone: TranslationTone = .neutral) -> Signal<InstantPage?, TranslationError> {
+            let account = self.account
+            return account.postbox.transaction { transaction -> Api.InputPeer? in
+                return transaction.getPeer(messageId.peerId).flatMap(apiInputPeer)
+            }
+            |> castError(TranslationError.self)
+            |> mapToSignal { inputPeer -> Signal<InstantPage?, TranslationError> in
+                guard let inputPeer else {
+                    return .fail(.generic)
+                }
+                return _internal_translateRichMessages(account: account, inputPeer: inputPeer, messageIds: [messageId], toLang: toLang, tone: tone)
+                |> map { pages in
+                    return pages[messageId]
+                }
+            }
         }
         
         public func translateMessages(messageIds: [EngineMessage.Id], fromLang: String?, toLang: String, enableLocalIfPossible: Bool, tone: TranslationTone = .neutral) -> Signal<Never, TranslationError> {
@@ -747,6 +814,10 @@ public extension TelegramEngine {
             return _internal_requestMainWebView(postbox: self.account.postbox, network: self.account.network, peerId: peerId, botId: botId, source: source, themeParams: themeParams)
         }
         
+        public func requestChatJoinWebView(queryId: Int64, themeParams: [String: Any]?) -> Signal<RequestWebViewResult, RequestWebViewError> {
+            return _internal_requestChatJoinWebView(network: self.account.network, queryId: queryId, themeParams: themeParams)
+        }
+
         public func requestAppWebView(peerId: PeerId, appReference: BotAppReference, payload: String?, themeParams: [String: Any]?, compact: Bool, fullscreen: Bool, allowWrite: Bool) -> Signal<RequestWebViewResult, RequestWebViewError> {
             return _internal_requestAppWebView(postbox: self.account.postbox, network: self.account.network, stateManager: self.account.stateManager, peerId: peerId, appReference: appReference, payload: payload, themeParams: themeParams, compact: compact, fullscreen: fullscreen, allowWrite: allowWrite)
         }
@@ -919,12 +990,6 @@ public extension TelegramEngine {
             |> ignoreValues
         }
         
-        public func getSynchronizeAutosaveItemOperations() -> Signal<[(index: Int32, message: Message, mediaId: MediaId)], NoError> {
-            return self.account.postbox.transaction { transaction -> [(index: Int32, message: Message, mediaId: MediaId)] in
-                return _internal_getSynchronizeAutosaveItemOperations(transaction: transaction)
-            }
-        }
-
         func removeSyncrhonizeAutosaveItemOperations(indices: [Int32]) {
             let _ = (self.account.postbox.transaction { transaction -> Void in
                 _internal_removeSyncrhonizeAutosaveItemOperations(transaction: transaction, indices: indices)
@@ -1788,12 +1853,27 @@ public extension TelegramEngine {
             |> ignoreValues
         }
         
-        public func composeAIMessageStyles() -> Signal<[TelegramComposeAIMessageMode.Style], NoError> {
-            return _internal_composeAIMessageStyles(account: self.account)
+        public func composeAIMessageStyles() -> Signal<[TelegramComposeAIMessageMode.CloudStyle], NoError> {
+            return _internal_cachedCloudAITextStyles(postbox: self.account.postbox)
+            |> map { value in
+                return value?.items ?? []
+            }
         }
         
-        public func composeAIMessage(text: TextWithEntities, mode: TelegramComposeAIMessageMode) -> Signal<TelegramAIComposeMessageResult, TelegramAIComposeMessageError> {
+        public func requestAIMessageStyle(slug: String) -> Signal<(style: TelegramComposeAIMessageMode.CloudStyle, initialPreview: AIMessageStylePreview?)?, NoError> {
+            return _internal_requestAIMessageStyle(account: self.account, slug: slug)
+        }
+        
+        public func installAIMessageStyle(style: TelegramComposeAIMessageMode.CloudStyle.Custom) -> Signal<Never, InstallAIMessageStyleError> {
+            return _internal_installAIMessageStyle(account: self.account, style: style)
+        }
+        
+        public func composeAIMessage(text: ComposedRichMessage, mode: TelegramComposeAIMessageMode) -> Signal<TelegramAIComposeMessageResult, TelegramAIComposeMessageError> {
             return _internal_composeAIMessage(account: self.account, text: text, mode: mode)
+        }
+        
+        public func requestAIMessageStylePreview(reference: TelegramComposeAIMessageMode.CloudStyle.Reference, index: Int) -> Signal<AIMessageStylePreview?, NoError> {
+            return _internal_requestAIMessageStylePreview(account: self.account, reference: reference, index: index)
         }
         
         public func requestMiniAppButton(peerId: EnginePeer.Id, requestId: String) -> Signal<ReplyMarkupButton?, NoError> {
@@ -1812,6 +1892,78 @@ public extension TelegramEngine {
                 |> map(Optional.init)
                 |> `catch` { _ -> Signal<ReplyMarkupButton?, NoError> in
                     return .single(nil)
+                }
+            }
+        }
+        
+        public func requestFullRichText(id: EngineMessage.Id) -> Signal<RichTextMessageAttribute?, NoError> {
+            let account = self.account
+            return self.account.postbox.transaction { transaction -> Api.InputPeer? in
+                return transaction.getPeer(id.peerId).flatMap(apiInputPeer)
+            }
+            |> mapToSignal { inputPeer -> Signal<RichTextMessageAttribute?, NoError> in
+                guard let inputPeer else {
+                    return .single(nil)
+                }
+                if id.namespace != Namespaces.Message.Cloud {
+                    return .single(nil)
+                }
+                return account.network.request(Api.functions.messages.getRichMessage(peer: inputPeer, id: id.id))
+                |> map(Optional.init)
+                |> `catch` { _ -> Signal<Api.messages.Messages?, NoError> in
+                    return .single(nil)
+                }
+                |> mapToSignal { result -> Signal<RichTextMessageAttribute?, NoError> in
+                    guard let result else {
+                        return .single(nil)
+                    }
+                    
+                    let messages: [Api.Message]
+                    let users: [Api.User]
+                    let chats: [Api.Chat]
+                    switch result {
+                    case let .channelMessages(channelMessages):
+                        messages = channelMessages.messages
+                        users = channelMessages.users
+                        chats = channelMessages.chats
+                    case let .messages(messagesValue):
+                        messages = messagesValue.messages
+                        users = messagesValue.users
+                        chats = messagesValue.chats
+                    case .messagesNotModified:
+                        return .single(nil)
+                    case let .messagesSlice(messagesSlice):
+                        messages = messagesSlice.messages
+                        users = messagesSlice.users
+                        chats = messagesSlice.chats
+                    }
+                    
+                    return account.postbox.transaction { transaction -> RichTextMessageAttribute? in
+                        var peerIsForum = false
+                        if let peer = transaction.getPeer(id.peerId), peer.isForum {
+                            peerIsForum = true
+                        }
+                        updatePeers(transaction: transaction, accountPeerId: account.peerId, peers: AccumulatedPeers(chats: chats, users: users))
+                        
+                        if let apiMessage = messages.first, let storeMessage = StoreMessage(apiMessage: apiMessage, accountPeerId: account.peerId, peerIsForum: peerIsForum) {
+                            transaction.updateMessage(id, update: { currentMessage in
+                                var storeForwardInfo: StoreMessageForwardInfo?
+                                if let forwardInfo = currentMessage.forwardInfo {
+                                    storeForwardInfo = StoreMessageForwardInfo(authorId: forwardInfo.author?.id, sourceId: forwardInfo.source?.id, sourceMessageId: forwardInfo.sourceMessageId, date: forwardInfo.date, authorSignature: forwardInfo.authorSignature, psaType: forwardInfo.psaType, flags: forwardInfo.flags)
+                                }
+                                var updatedAttributes = currentMessage.attributes
+                                if let updatedRichAttribute = storeMessage.attributes.first(where: { $0 is RichTextMessageAttribute }) as? RichTextMessageAttribute {
+                                    if let index = updatedAttributes.firstIndex(where: { $0 is RichTextMessageAttribute }), let previous = updatedAttributes[index] as? RichTextMessageAttribute {
+                                        updatedAttributes[index] = RichTextMessageAttribute(instantPage: previous.instantPage, fullInstantPage: updatedRichAttribute.instantPage)
+                                    }
+                                }
+                                
+                                return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: storeForwardInfo, authorId: currentMessage.author?.id, text: currentMessage.text, attributes: updatedAttributes, media: currentMessage.media))
+                            })
+                        }
+                        
+                        return transaction.getMessage(id)?.attributes.first(where: { $0 is RichTextMessageAttribute }) as? RichTextMessageAttribute
+                    }
                 }
             }
         }
